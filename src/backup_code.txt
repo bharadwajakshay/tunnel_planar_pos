@@ -1,0 +1,282 @@
+void tunnel_planar_pos::image_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, double* z1, double* z2,double* z3)
+{
+
+	cv::Mat lwir_img((int)input_cloud->height,(int)input_cloud->width,CV_8UC3);
+	cv::Mat hist_eq;
+	for(int i=0;i<input_cloud->height;i++)
+	{
+		for(int j=0;j<input_cloud->width;j++)
+		{
+			/*uint32_t rgb = *reinterpret_cast<int*>(&input_cloud->at(j,i).rgb);
+				uint8_t r = (rgb >> 16) & 0x0000ff;
+				uint8_t g = (rgb >> 8)  & 0x0000ff;
+				uint8_t b = (rgb)       & 0x0000ff;*/
+			lwir_img.at<cv::Vec3b>(i,j)[1] =input_cloud->at(j,i).r;
+			lwir_img.at<cv::Vec3b>(i,j)[2] = input_cloud->at(j,i).b;
+			lwir_img.at<cv::Vec3b>(i,j)[3] = input_cloud->at(j,i).g;
+
+		}
+	}
+	/*cv::cvtColor(lwir_img,lwir_img,CV_RGB2GRAY);
+	cv::equalizeHist( lwir_img, hist_eq );*/
+	cv::imshow("LWIR Extracted image",lwir_img);
+	//cv::imshow("Histogram equalised image",hist_eq);
+	cv::waitKey(0);
+}
+
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr tunnel_planar_pos::slice_extraction(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt)
+{
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_slice (new pcl::PointCloud<pcl::PointXYZRGB>);
+	cloud_slice->header = input_cloud->header;
+	pcl::PointXYZRGB point;
+	cloud_slice->height=input_cloud->height;
+	cloud_slice->width=input_cloud->width;
+
+	for(int i=0;i<input_cloud->width;i++)
+	{
+		for(int j=0;j<input_cloud->height;j++)
+		{
+			if(/*((min_pt[0]-input_cloud->at(i,j).x<0)&&(min_pt[0]-input_cloud->at(i,j).x>-0.15))
+					||((min_pt[1]-input_cloud->at(i,j).y<0)&&(min_pt[1]-input_cloud->at(i,j).y>-0.15))*/
+					((max_pt[0]-input_cloud->at(i,j).x)<0.15)
+					||((max_pt[1]-input_cloud->at(i,j).y)<0.15))
+				if(((input_cloud->at(i,j).z >1.9) && (input_cloud->at(i,j).z < 1.95))
+						||((input_cloud->at(i,j).z >1.4) && (input_cloud->at(i,j).z < 1.45))
+						||((input_cloud->at(i,j).z >2.4) && (input_cloud->at(i,j).z < 2.45))
+						||((input_cloud->at(i,j).z >2.9) && (input_cloud->at(i,j).z < 2.95))
+						||((input_cloud->at(i,j).z >3.4) && (input_cloud->at(i,j).z < 3.45)))
+				{
+					point.x=input_cloud->at(i,j).x;
+					point.y=input_cloud->at(i,j).y;
+					if ((input_cloud->at(i,j).z >1.9) && (input_cloud->at(i,j).z < 1.95))
+						point.z=1.9;
+					else if ((input_cloud->at(i,j).z >2.4) && (input_cloud->at(i,j).z < 2.45))
+						point.z=2.4;
+					else if ((input_cloud->at(i,j).z >1.4) && (input_cloud->at(i,j).z < 1.45))
+						point.z=1.4;
+					else if ((input_cloud->at(i,j).z >2.9) && (input_cloud->at(i,j).z < 2.95))
+						point.z=2.9;
+					else
+						point.z=3.4;
+
+					cloud_slice->push_back(point);
+
+				}
+		}
+	}
+	pub_slices.publish(cloud_slice);
+	return(cloud_slice);
+}
+
+void tunnel_planar_pos::line_fitting(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+{
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB> line_cloud_x;
+	pcl::PointCloud<pcl::PointXYZRGB> line_cloud_y;
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB> local_copy;
+	//pcl::PointXYZRGB p1xl1, p1xl2, p1xl3, p1xl4, p2xl1, p2xl2, p2xl3, p2xl4;
+	//pcl::PointXYZRGB p1yl1, p1yl2, p1yl3, p1yl4, p2yl1, p2yl2, p2yl3, p2yl4;
+	std::vector <pcl::ModelCoefficients> x_plane_y_plane_coeff;
+	pcl::PointXYZRGB point;
+	std::vector <pcl::PointXYZRGB> points_x_array, points_y_array;
+	filtered_cloud->header = input_cloud->header;
+	temp_cloud->header = input_cloud->header;
+	line_cloud_x.header = input_cloud->header;
+	line_cloud_y.header = input_cloud->header;
+	line_cloud_x.clear();
+	line_cloud_y.clear();
+	local_copy.clear();
+
+	pcl::SACSegmentation<pcl::PointXYZRGB> seg;
+	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+	Eigen::Vector3f axis;
+
+	// Optional
+	seg.setOptimizeCoefficients (true);
+	// Mandatory
+	seg.setModelType (pcl::SACMODEL_PARALLEL_LINE);
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setDistanceThreshold (0.005);
+	seg.setInputCloud (input_cloud);
+	seg.setEpsAngle(0.0872665); //Setting the angle epsilon (delta) threshold
+
+
+	int int_val =100;
+	int ii=0;
+	int size_init = input_cloud->size();
+	while (/*(input_cloud ->size() < (0.3 * size_init)) &&*/ (ii < 7))
+	{
+
+		if (ii%2==0)
+			//Set the axis along which we need to search for a model perpendicular to.
+			//We want to fit line parallel to x - axis
+			axis = Eigen::Vector3f(0.0,1.0,1.0);
+		else
+			//We want to fit line parallel to y - axis
+			axis = Eigen::Vector3f(1.0,0.0,1.0);
+
+		seg.setAxis(axis);
+		seg.segment(*inliers,*coefficients );
+		if(inliers->indices.size()==0)
+		{
+			ROS_INFO("There are no lines in the point cloud\n");
+			point.x = NAN;
+			point.y = NAN;
+			point.z = NAN;
+			if(ii%2==0)
+				points_x_array.push_back(point);
+			else
+				points_y_array.push_back(point);
+			ii=ii+1;
+			continue;
+		}
+
+		// Extract the planar inliers from the input cloud
+		pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+		extract.setInputCloud (input_cloud);
+		extract.setIndices (inliers);
+		extract.setNegative (false);
+		if (ii%2==0)
+		{
+			extract.filter(*filtered_cloud);
+			points_x_array.push_back(filtered_cloud->at((int) ceil(filtered_cloud->width/3)));
+			points_x_array.push_back(filtered_cloud->at((int) floor(2*(filtered_cloud->width)/3)));
+			filtered_cloud->at((int) ceil(filtered_cloud->width/3)).r = 255;
+			filtered_cloud->at((int) floor(2*(filtered_cloud->width)/3)).r= 255;
+			pcl::copyPointCloud(*filtered_cloud,local_copy);
+			line_cloud_x=local_copy + line_cloud_x;
+			filtered_cloud->clear();
+		}
+		else
+		{
+			extract.filter(*filtered_cloud);
+			points_y_array.push_back(filtered_cloud->at((int) ceil(filtered_cloud->width/3)));
+			points_y_array.push_back(filtered_cloud->at((int) floor(2*(filtered_cloud->width)/3)));
+			filtered_cloud->at((int) ceil(filtered_cloud->width/3)).r = 255;
+			filtered_cloud->at((int) floor(2*(filtered_cloud->width)/3)).r= 255;
+			pcl::copyPointCloud(*filtered_cloud,local_copy);
+			line_cloud_y = local_copy + line_cloud_y;
+			filtered_cloud->clear();
+#ifdef _debug
+			for (int jj=0;jj<line_cloud_y->width;jj++)
+				std::cout<<"The points are\n\tPoint 1: x="<<line_cloud_y->at(jj).x<<"\ty="<<line_cloud_y->at(jj).y<<"\tz="<<line_cloud_y->at(jj).z<<std::endl;
+#endif
+
+		}
+		extract.setNegative(true);
+		extract.filter(*temp_cloud);
+		*input_cloud = *temp_cloud;
+		ii=ii+1;
+	}
+
+	pub_x_line.publish(line_cloud_x);
+	pub_y_line.publish(line_cloud_y);
+
+}
+
+void tunnel_planar_pos::RANSAC_PLNAR_EXT(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud)
+{
+	pcl::PointCloud<pcl::PointXYZ>::Ptr local_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::copyPointCloud(*input_cloud, *local_cloud);
+
+	//Clean up the point cloud
+	std::vector<int> indices_nan;
+	pcl::removeNaNFromPointCloud(*local_cloud,*local_cloud,indices_nan);
+
+	//Plane extraction
+	pcl::PointCloud<pcl::PointXYZ>::Ptr z_plane_pc(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr y_plane_pc(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr x_plane_pc(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr tmp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	z_plane_pc->header = input_cloud->header;
+	y_plane_pc->header = input_cloud->header;
+	tmp_cloud->header = input_cloud->header;
+	z_plane_pc->clear();
+	y_plane_pc->clear();
+	x_plane_pc->clear();
+	tmp_cloud->clear();
+
+	// Create the segmentation object
+	pcl::SACSegmentation<pcl::PointXYZ> seg;
+	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+	Eigen::Vector3f axis;
+
+	// Optional
+	seg.setOptimizeCoefficients (true);
+	// Mandatory
+	seg.setModelType (pcl::SACMODEL_PLANE);
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setDistanceThreshold (0.05);
+	seg.setInputCloud(local_cloud);
+	//seg.setEpsAngle(0.174532925199433); //Setting the angle epsilon (delta) threshold at 10 degrees
+	seg.setEpsAngle(0.087266462599716);//Setting the angle epsilon (delta) threshold at 5 degrees
+
+	for (int ii=0;ii<3;ii++)
+	{
+		if (ii==0)
+			//Set the axis along which we need to search for a model perpendicular to.
+			//We want to fit line parallel to y - axis
+			axis = Eigen::Vector3f(1.0,0.0,1.0);
+		else if (ii==1)
+			//We want to fit line parallel to 0 - axis
+			axis = Eigen::Vector3f(1.0,1.0,0.0);
+		else
+			axis = Eigen::Vector3f(0.0,1.0,1.0);
+		seg.setAxis(axis);
+		seg.segment(*inliers,*coefficients );
+		if(inliers->indices.size()==0)
+		{
+			if(ii==0)
+				ROS_INFO("There are no planes parallel to y-axis in the point cloud\n");
+			else if(ii==1)
+				ROS_INFO("There are no planes parallel to z-axis in the point cloud\n");
+			else
+				ROS_INFO("There are no planes parallel to x-axis in the point cloud\n");
+		}
+		else
+			if(ii==0)
+			{
+				std::cout<<"The Y Plane coefficents are\t"<<coefficients->values[0]<<"\t"
+						<<coefficients->values[1]<<"\t"<<coefficients->values[2]<<"\t"
+						<<coefficients->values[3]<<std::endl;
+				coeff_RANSAC_yplane = coefficients;
+			}
+			else if(ii==1)
+			{
+				std::cout<<"The Z Plane coefficents are\t"<<coefficients->values[0]<<"\t"
+						<<coefficients->values[1]<<"\t"<<coefficients->values[2]<<"\t"
+						<<coefficients->values[3]<<std::endl;
+				coeff_RANSAC_zplane = coefficients;
+			}
+			else
+			{
+				std::cout<<"The X Plane coefficents are\t"<<coefficients->values[0]<<"\t"
+						<<coefficients->values[1]<<"\t"<<coefficients->values[2]<<"\t"
+						<<coefficients->values[3]<<std::endl;
+				coeff_RANSAC_xplane = coefficients;
+			}
+
+		// Extract the planar inliers from the input cloud
+		pcl::ExtractIndices<pcl::PointXYZ> extract;
+		extract.setInputCloud (local_cloud);
+		extract.setIndices (inliers);
+		extract.setNegative (false);
+		if (ii==0)
+			extract.filter(*y_plane_pc);
+		else if(ii==1)
+			extract.filter(*z_plane_pc);
+		else
+			extract.filter(*x_plane_pc);
+		extract.setNegative(true);
+		extract.filter(*tmp_cloud);
+		*local_cloud = *tmp_cloud;
+	}
+	pub_x_plane.publish(x_plane_pc);
+	pub_y_plane.publish(y_plane_pc);
+	pub_z_plane.publish(z_plane_pc);
+
+
+}

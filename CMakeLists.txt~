@@ -2,13 +2,12 @@ cmake_minimum_required(VERSION 2.8.3)
 project(tunnel_planar_pos)
 
 find_package(catkin REQUIRED)
-find_package(Eigen3 REQUIRED)
+#find_package(Eigen REQUIRED)
 find_package(PCL REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
-  cv_bridge
   xsens_slim
 )
 
@@ -30,6 +29,6 @@ include_directories( include
 )
 
 ## Declare a C++ executable
-add_executable(tunnel_planar_pos src/tunnel_planar_pos.cpp src/tunnel_planar_pos_utils.cpp src/image_processing_tools.cpp)
+add_executable(tunnel_planar_pos src/tunnel_planar_pos.cpp src/tunnel_planar_pos_utils.cpp)
 
 target_link_libraries(tunnel_planar_pos ${catkin_LIBRARIES} ${PCL_LIBRARIES})
