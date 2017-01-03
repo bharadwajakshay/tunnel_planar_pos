@@ -12,21 +12,18 @@ tunnel_planar_pos::tunnel_planar_pos()
 {
 	ROS_INFO("Topics Subscribed are:\n1. %s\n2. %s\n",topic_pc.c_str(),topic_imu.c_str());
 	sub_pc=nh.subscribe(topic_pc.c_str(),1000,&tunnel_planar_pos::callbackpointclouds,this);
-	sub_img=nh.subscribe(topic_img.c_str(),1000,&tunnel_planar_pos::callbacklwirimg,this);
 	sub_imu=nh.subscribe(topic_imu.c_str(),1000,&tunnel_planar_pos::callbackpointimu,this);
-	pub_x_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("RANSAC_x_plane",1000);
-	pub_y_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("RANSAC_y_plane",1000);
-	pub_z_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZ> >("RANSAC_z_plane",1000);
-	pub_x_line = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("x_line",1000);
-	pub_y_line = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("y_line",1000);
+
 	pub_slices = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("Slice_PC",1000);
 	pub_xminp = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("X_min_plane",1000);
 	pub_xmaxp = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("X_max_plane",1000);
 	pub_yminp = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("Y_min_plane",1000);
 	pub_ymaxp = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("Y_max_plane",1000);
+
 	pub_corrected_pc = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("corrected_pt_cloud",1000);
+
 	xmin=false,xmax=false;ymin=false;ymax=false;
-	xmin_coeff=false, xmax_coeff=false, ymin_coeff=false, ymax_coeff =false;
+	//xmin_coeff=false, xmax_coeff=false, ymin_coeff=false, ymax_coeff =false;
 	coeff_valid =false;
 	first_imu_msg = true;
 	imu_loop_itr = 0;
@@ -34,8 +31,12 @@ tunnel_planar_pos::tunnel_planar_pos()
 
 void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
+	ros::Time start_time = ros::Time::now();
 	pcl::PCLPointCloud2 pcl_pc2;
 	double z1=NAN,z2=NAN,z3=NAN;
+
+	//set the origin of the sensors to x=0, y=0, z=0
+	pcl::PointXYZ origin(0,0,0);
 
 	// Convert to PCP PointCloud2 structure
 	pcl_conversions::toPCL(*msg,pcl_pc2);
@@ -68,10 +69,19 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	ymin_pc.clear();
 	xmax_pc.clear();
 	ymax_pc.clear();
+	xmin_plane.clear();
+	xmin_plane.header = rgb_cloud->header;
+	xmax_plane.clear();
+	xmax_plane.header = rgb_cloud->header;
+	ymin_plane.clear();
+	ymin_plane.header = rgb_cloud->header;
+	ymax_plane.clear();
+	ymax_plane.header = rgb_cloud->header;
 	std::vector<int> indices_nan;
 	pcl::removeNaNFromPointCloud(*rgb_cloud,*rgb_cloud,indices_nan);
 
 	this->pc_segmentation(rgb_cloud,min_pt,max_pt);
+
 	/*******************************************************************
 	 * publish Segmented POint clouds
 	 *******************************************************************/
@@ -82,12 +92,6 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	 *************************************/
 	//pub_corrected_pc.publish(tunnel_planar_pos::imu_correction(rgb_cloud));
 
-	/*stacking the coeffitients
-	 * xmin_coeff => Modelcoefficients[0]
-	 * xmax_coeff => Modelcoefficients[1]
-	 * ymin_coeff => Modelcoefficients[2]
-	 * ymax_coeff => Modelcoefficients[3]
-	 */
 	pcl::ModelCoefficients xmin_coeff, xmax_coeff, ymin_coeff, ymax_coeff;	//Defining the coefficients
 	/*********************************************************************************************
 	 * Estimate the planes using Singular value Decomposition
@@ -97,29 +101,36 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 		xmin_coeff = this->plane_est_svd(xmin_pc);
 		std::cout<<"The xmin_coeff coefficents calculated using svd are\t"<<xmin_coeff.values[0]<<"\t"
 				<<xmin_coeff.values[1]<<"\t"<<xmin_coeff.values[2]<<"\t"<<xmin_coeff.values[3]<<std::endl;
+		std::cout<<"The distance between Origin and xmin plane is "<<xmin_coeff.values[3]<<std::endl;
 	}
 	if(xmax)
 	{
 		xmax_coeff = this->plane_est_svd(xmax_pc);
 		std::cout<<"The xmax_coeff coefficents calculated using svd are\t"<<xmax_coeff.values[0]<<"\t"
 				<<xmax_coeff.values[1]<<"\t"<<xmax_coeff.values[2]<<"\t"<<xmax_coeff.values[3]<<std::endl;
+		std::cout<<"The distance between Origin and xmax plane is "<<xmax_coeff.values[3]<<std::endl;
 	}
 	if(ymin)
 	{
 		ymin_coeff = this->plane_est_svd(ymin_pc);
 		std::cout<<"The ymin_coeff coefficents calculated using svd are\t"<<ymin_coeff.values[0]<<"\t"
 				<<ymin_coeff.values[1]<<"\t"<<ymin_coeff.values[2]<<"\t"<<ymin_coeff.values[3]<<std::endl;
+		std::cout<<"The distance between Origin and ymin plane is "<<ymin_coeff.values[3]<<std::endl;
 	}
 	if(ymax)
 	{
 		ymax_coeff = this->plane_est_svd(ymax_pc);
 		std::cout<<"The ymax_coeff coefficents calculated using svd are\t"<<ymax_coeff.values[0]<<"\t"
 				<<ymax_coeff.values[1]<<"\t"<<ymax_coeff.values[2]<<"\t"<<ymax_coeff.values[3]<<std::endl;
+		std::cout<<"The distance between Origin and ymax plane is "<<ymax_coeff.values[3]<<std::endl;
+	}
+	if(!((xmin||xmax)&&(ymin||ymax)))
+	{
+		std::cout<< "No measurement possible"<<std::endl;
 	}
 	/***********************************************************************************************
 	 *  Check for perpendicular planes between the X-plane and the Y-plane
 	 ***********************************************************************************************/
-
 	if(xmin)
 	{
 		if(ymin)
@@ -145,6 +156,27 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 		if(ymax)
 			std::cout<<"The angle between ymin plane and ymax plane = "<<this->angle_btw_planes(ymin_coeff,ymax_coeff)<<std::endl;
 
+	/*****************************************************************************************************
+	 * Manually extract the inliers to the pointcloud by caluclating the eucledean distance
+	 *****************************************************************************************************/
+	this->extract_inliers(xmin_coeff,xmax_coeff,ymin_coeff,ymax_coeff);
+
+	/******************************************************************************************************
+	 * Publish the individual pointclouds
+	 ******************************************************************************************************/
+	pub_xminp.publish(xmin_plane);
+	pub_xmaxp.publish(xmax_plane);
+	pub_ymaxp.publish(ymax_plane);
+	pub_yminp.publish(ymin_plane);
+
+	/************************************************************************************************************
+	 * Note: DO NOT COMMENT OR REMOVE!!! Other wise causes error during SVD calculation
+	 * Setting all the segmented point clouds bool flags to zero
+	 ************************************************************************************************************/
+	xmin = false; xmax = false; ymin = false; ymax = false;
+
+	ros::Time end_time = ros::Time::now();
+	std::cout<<"Total time taken for execution is "<<end_time.toSec()- start_time.toSec() <<"Seconds"<<std::endl;
 }
 
 /****************************************************************************************
@@ -152,6 +184,7 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
  ***************************************************************************************/
 pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud)
 {
+	ros::Time SVD_start_time = ros::Time::now();
 	Eigen::MatrixXd points_3D(3,point_cloud.width);
 	//assigning the points from point cloud to matrix
 	for (int i=0;i<point_cloud.width;i++)
@@ -182,64 +215,28 @@ pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::Poi
 	//double d = -((U_MAT(0,2)*points_3D(0,1))+ (U_MAT(1,2)*points_3D(1,1)) + (U_MAT(1,2)*points_3D(1,2)));
 	double d = -((U_MAT(0,2)*centroid(0))+ (U_MAT(1,2)*centroid(1)) + (U_MAT(2,2)*centroid(2)));
 
+	/* check if the distance calculated from the origin is -ve if yes,
+	   change the direction of the normal*/
+	if(d<0)
+	{
+		U_MAT.col(2) = -U_MAT.col(2);
+		d = -d;
+	}
+
 	pcl::ModelCoefficients normals;
 	normals.values.push_back(U_MAT(0,2));
 	normals.values.push_back(U_MAT(1,2));
 	normals.values.push_back(U_MAT(2,2));
 	normals.values.push_back(d);
+	ros::Time SVD_end_time = ros::Time::now();
+		std::cout<<"Total time taken for Planar segmentation using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
 	return(normals);
-
-}
-
-/*
- *
- */
-void tunnel_planar_pos::image_segmentation(pcl::PointCloud<pcl::PointXYZRGB> input_cloud)
-{
-	/**************************************************************************
-	 * Create an Image extraction object to extract the image
-	 **************************************************************************/
-	//check if the pc is organised
-	/*if(!input_cloud->isOrganized())
-		return;
-	//Define an OPENCV Image
-	cv::Mat rgb_image(input_cloud->height,input_cloud->width,CV_8UC3);
-	for(int i=0;i<input_cloud->height;i++)
-		for(int j=0;j<input_cloud->width;j++)
-		{
-			uint32_t rgb = *reinterpret_cast<int*>(&input_cloud->at(j,i).rgb);
-			cv::Vec3b color;
-			color[0] = (rgb >> 16) & 0x0000ff;
-			color[2] = (rgb >> 18) & 0x0000ff;
-			color[1] = (rgb)	   & 0x0000ff;
-			rgb_image.at<cv::Vec3b>(cv::Point(j,i)) = color;
-		}*/
-	//cv::imshow("recovered IR image",rgb_image);
-	//cv::waitKey(0);
-	pcl::PCLImage image;
-	pcl::io::PointCloudImageExtractorFromRGBField<pcl::PointXYZRGB> img_ext;
-	img_ext.extract(input_cloud,image);
-	std::cout<<image.width<<std::endl;
-
-}
-
-void tunnel_planar_pos::callbacklwirimg(const sensor_msgs::Image::ConstPtr& msg)
-{
-	cv_bridge::CvImagePtr ir_img_ptr = cv_bridge::toCvCopy(msg,sensor_msgs::image_encodings::BGR8);
-	cv::Mat lwir_image = ir_img_ptr->image;
-	//cv::cvtColor(lwir_image,lwir_image,CV_BGR2GRAY);
-	/*cv::inRange(lwir_image, cv::Scalar(0, 0, 175), cv::Scalar(255, 255, 235), lwir_image);
-	cv::imshow("Thresholded image", lwir_image);
-	cv::waitKey(0);
-	cv::*/
-
-	//apply SURF object detection
-	int min_hessian = 400;
 
 }
 
 void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt)
 {
+	ros::Time seg_start_time = ros::Time::now();
 	std::vector <pcl::PointCloud<pcl::PointXYZRGB> > segmented_pc;
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmin_plane (new pcl::PointCloud<pcl::PointXYZRGB>),ymin_plane (new pcl::PointCloud<pcl::PointXYZRGB>),
 			xmax_plane (new pcl::PointCloud<pcl::PointXYZRGB>),ymax_plane(new pcl::PointCloud<pcl::PointXYZRGB>),slices (new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -285,28 +282,29 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 					slices->push_back(input_cloud->at(i));
 				}
 	}
-	if(xmin_plane->width>5000)
+	if(xmin_plane->width>3000)
 	{
 		pcl::copyPointCloud(*xmin_plane,xmin_pc);
 		xmin=true;
 	}
-	if(ymin_plane->width>5000)
+	if(ymin_plane->width>3000)
 	{
 		pcl::copyPointCloud(*ymin_plane,ymin_pc);
 		ymin=true;
 	}
-	if(xmax_plane->width>5000)
+	if(xmax_plane->width>3000)
 	{
 		pcl::copyPointCloud(*xmax_plane,xmax_pc);
 		xmax=true;
 	}
-	if(ymax_plane->width>5000)
+	if(ymax_plane->width>3000)
 	{
 		pcl::copyPointCloud(*ymax_plane,ymax_pc);
 		ymax=true;
 	}
 	pcl::copyPointCloud(*slices,slices_pc);
-
+	ros::Time seg_end_time = ros::Time::now();
+	std::cout<<"Total time taken for Segmentation of point cloud is "<<seg_end_time.toSec()- seg_start_time.toSec() <<"Seconds"<<std::endl;
 }
 
 
@@ -361,6 +359,10 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr tunnel_planar_pos::imu_correction(pcl::Po
 
 	return(corrected_pc);
 }
+/***************************************************************************************************
+ * Calculates the angles between 2 planes (i.e. angles between 2 normal vectors
+ * return value: angle in degrees
+ ***************************************************************************************************/
 
 double tunnel_planar_pos::angle_btw_planes(pcl::ModelCoefficients plane1, pcl::ModelCoefficients plane2)
 {
@@ -376,6 +378,68 @@ double tunnel_planar_pos::angle_btw_planes(pcl::ModelCoefficients plane1, pcl::M
 	double angle = std::acos(dot_prod/(mag_p1 + mag_p2));
 	return((angle*180)/M_PI);
 }
+
+/****************************************************************************************************
+ * Calculates the perpendicular or shortest distance parallel to the normal vector between
+ * a given point in 3D coordinates and a given plane equation
+ * formula used is
+ * 		d=|Ax+By+Cz+d|/ sqrt(A^2+B^2+C^2)
+ * return value: Distance in meters
+ ****************************************************************************************************/
+double tunnel_planar_pos::distance_frm_point_2_plane(pcl::PointXYZ point, pcl::ModelCoefficients plane)
+{
+	double num = plane.values.at(0)*point.x + plane.values.at(1)*point.y + plane.values.at(2)*point.z
+			+ plane.values.at(3);
+	double denum = std::sqrt(std::pow(plane.values.at(0),2) + std::pow(plane.values.at(1),2)
+			+ std::pow(plane.values.at(2),2));
+	double distance = std::fabs(num)/denum;
+	return (distance);
+}
+
+
+void tunnel_planar_pos::extract_inliers(pcl::ModelCoefficients xmin_coef, pcl::ModelCoefficients xmax_coef, pcl::ModelCoefficients ymin_coef, pcl::ModelCoefficients ymax_coef )
+{
+	pcl::PointXYZ point;
+
+	if(xmin)
+		for(int i=0;i<xmin_pc.width;i++)
+		{
+			point.x=xmin_pc.at(i).x;
+			point.y=xmin_pc.at(i).y;
+			point.z=xmin_pc.at(i).z;
+			if(this->distance_frm_point_2_plane(point,xmin_coef)<0.10)
+				xmin_plane.push_back(xmin_pc.at(i));
+		}
+	if(xmax)
+		for(int i=0;i<xmax_pc.width;i++)
+		{
+			point.x=xmax_pc.at(i).x;
+			point.y=xmax_pc.at(i).y;
+			point.z=xmax_pc.at(i).z;
+			if(this->distance_frm_point_2_plane(point,xmax_coef)<0.10)
+				xmax_plane.push_back(xmax_pc.at(i));
+		}
+	if(ymin)
+		for(int i=0;i<ymin_pc.width;i++)
+		{
+			point.x=ymin_pc.at(i).x;
+			point.y=ymin_pc.at(i).y;
+			point.z=ymin_pc.at(i).z;
+			if(this->distance_frm_point_2_plane(point,ymin_coef)<0.10)
+				ymin_plane.push_back(ymin_pc.at(i));
+		}
+	if(ymax)
+		for(int i=0;i<ymax_pc.width;i++)
+		{
+			point.x=ymax_pc.at(i).x;
+			point.y=ymax_pc.at(i).y;
+			point.z=ymax_pc.at(i).z;
+			if(this->distance_frm_point_2_plane(point,ymax_coef)<0.10)
+				ymax_plane.push_back(ymax_pc.at(i));
+		}
+
+}
+
 void tunnel_planar_pos::callbackpointimu(const xsens_slim::imuX::ConstPtr& msg)
 {
 

@@ -7,6 +7,36 @@
 
 #include "tunnel_planar_pos_utils.h"
 
+
+/*
+ *
+ */
+void tunnel_planar_pos::image_segmentation(pcl::PointCloud<pcl::PointXYZRGB> input_cloud)
+{
+	/**************************************************************************
+	 * Create an Image extraction object to extract the image
+	 **************************************************************************/
+	//check if the pc is organised
+	/*if(!input_cloud->isOrganized())
+		return;
+	//Define an OPENCV Image
+	cv::Mat rgb_image(input_cloud->height,input_cloud->width,CV_8UC3);
+	for(int i=0;i<input_cloud->height;i++)
+		for(int j=0;j<input_cloud->width;j++)
+		{
+			uint32_t rgb = *reinterpret_cast<int*>(&input_cloud->at(j,i).rgb);
+			cv::Vec3b color;
+			color[0] = (rgb >> 16) & 0x0000ff;
+			color[2] = (rgb >> 18) & 0x0000ff;
+			color[1] = (rgb)	   & 0x0000ff;
+			rgb_image.at<cv::Vec3b>(cv::Point(j,i)) = color;
+		}*/
+	//cv::imshow("recovered IR image",rgb_image);
+	//cv::waitKey(0);
+
+}
+
+
 void tunnel_planar_pos::comp_hist_col_img(cv::Mat image)
 {
 	/// Establish the number of bins

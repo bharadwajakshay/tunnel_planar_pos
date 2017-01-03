@@ -99,36 +99,29 @@ public:
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr imu_correction(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 	void image_segmentation(pcl::PointCloud<pcl::PointXYZRGB>  input_cloud);
 	void callbackpointimu(const xsens_slim::imuX::ConstPtr& msg);
-	void callbacklwirimg(const sensor_msgs::Image::ConstPtr& msg);
 	void comp_hist_col_img(cv::Mat image);
 	pcl::ModelCoefficients plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud);
 	double angle_btw_planes(pcl::ModelCoefficients plane1, pcl::ModelCoefficients plane2);
+	double distance_frm_point_2_plane(pcl::PointXYZ point, pcl::ModelCoefficients plane);
+	void extract_inliers(pcl::ModelCoefficients xmin, pcl::ModelCoefficients xmax, pcl::ModelCoefficients ymin,pcl::ModelCoefficients ymax);
 private:
 	ros::NodeHandle nh;
 	//Topics to subscribe
 	ros::Subscriber sub_pc;
 	ros::Subscriber sub_imu;
 	ros::Subscriber sub_img;
-	ros::Publisher pub_x_plane;
-	ros::Publisher pub_y_plane;
-	ros::Publisher pub_z_plane;
-	ros::Publisher pub_x_line;
-	ros::Publisher pub_y_line;
 	ros::Publisher pub_slices;
 	ros::Publisher pub_corrected_pc;
 	ros::Publisher pub_xminp,pub_yminp,pub_xmaxp,pub_ymaxp;
-
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xplane_ransac, yplane_ransac, zplane_Ransac, xline,yline;
+	pcl::PointCloud<pcl::PointXYZRGB> xmin_plane, ymin_plane,xmax_plane,ymax_plane;
 	pcl::PointCloud<pcl::PointXYZRGB> xmin_pc, ymin_pc,xmax_pc,ymax_pc,slices_pc;
 	bool xmin,xmax,ymin,ymax;
-	bool xmin_coeff,xmax_coeff,ymin_coeff,ymax_coeff;
 	bool coeff_valid;
 	std::vector <pcl::PointXYZRGB> xmin_points, xmax_points,ymin_points,ymax_points;
 	bool first_imu_msg;
 	geometry_msgs::Vector3 rpy;
 	int imu_loop_itr;
 	std::deque<xsens_slim::imuX> imu_message;
-
 
 };
 
