@@ -81,6 +81,11 @@
 
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/io/point_cloud_image_extractors.h>
+#include <pcl/io/io.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/features/integral_image_normal.h>
+#include <pcl/visualization/cloud_viewer.h>
+
 
 //#include <boost/circular_buffer/base.hpp>
 
@@ -102,8 +107,12 @@ public:
 	void comp_hist_col_img(cv::Mat image);
 	pcl::ModelCoefficients plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud);
 	double angle_btw_planes(pcl::ModelCoefficients plane1, pcl::ModelCoefficients plane2);
-	double distance_frm_point_2_plane(pcl::PointXYZ point, pcl::ModelCoefficients plane);
+	double distance_frm_point_2_plane(pcl::PointXYZI point, pcl::ModelCoefficients plane);
 	void extract_inliers(pcl::ModelCoefficients xmin, pcl::ModelCoefficients xmax, pcl::ModelCoefficients ymin,pcl::ModelCoefficients ymax);
+	std::vector<double> chng_angl_orient(pcl::ModelCoefficients current_coeff, pcl::ModelCoefficients prev_coeff, pcl::ModelCoefficients first_coeff);
+	void normal_extrct_org_pc(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
+	cv::Mat ExtractEdgeImg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud);
+	void ApplyHoughLineTranform(cv::Mat input_image);
 private:
 	ros::NodeHandle nh;
 	//Topics to subscribe
@@ -112,16 +121,23 @@ private:
 	ros::Subscriber sub_img;
 	ros::Publisher pub_slices;
 	ros::Publisher pub_corrected_pc;
-	ros::Publisher pub_xminp,pub_yminp,pub_xmaxp,pub_ymaxp;
-	pcl::PointCloud<pcl::PointXYZRGB> xmin_plane, ymin_plane,xmax_plane,ymax_plane;
+	ros::Publisher pub_edge_img;
+	//ros::Publisher pub_xminp,pub_yminp,pub_xmaxp,pub_ymaxp;
+	ros::Publisher pub_ext_planes, pub_plane_extracted;
+	pcl::PointCloud<pcl::PointXYZI> all_planes;
+	pcl::PointCloud<pcl::PointXYZRGB> all_planes_RGB;
 	pcl::PointCloud<pcl::PointXYZRGB> xmin_pc, ymin_pc,xmax_pc,ymax_pc,slices_pc;
 	bool xmin,xmax,ymin,ymax;
 	bool coeff_valid;
 	std::vector <pcl::PointXYZRGB> xmin_points, xmax_points,ymin_points,ymax_points;
-	bool first_imu_msg;
+	bool first_imu_msg,first_pc_msg;
 	geometry_msgs::Vector3 rpy;
 	int imu_loop_itr;
 	std::deque<xsens_slim::imuX> imu_message;
+
+	pcl::PointCloud<pcl::PointXYZRGB> previous_cloud;
+	pcl::ModelCoefficients first_xmin_coeff, first_xmax_coeff, first_ymin_coeff, first_ymax_coeff;
+	pcl::ModelCoefficients prev_xmin_coeff, prev_xmax_coeff, prev_ymin_coeff, prev_ymax_coeff;
 
 };
 

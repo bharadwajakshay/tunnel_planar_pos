@@ -16,7 +16,8 @@ int main(int argc, char **argv)
 	ros::init(argc,argv,"tunnel_planar_pos");
 	//Read parameters
 	ros::NodeHandle pnh("~");
-	pnh.param("topic_pc",topic_pc,std::string("/camera/lepton/depth_registered/points"));
+	//pnh.param("topic_pc",topic_pc,std::string("/camera/lepton/depth_registered/points"));
+	pnh.param("topic_pc",topic_pc,std::string("/structure/depth/points"));
 	pnh.param("topic_img",topic_img,std::string("/camera/lepton/image_rect_color"));
 	pnh.param("topic_imu",topic_imu,std::string("/mti/imuX"));
 	tunnel_planar_pos obj;
