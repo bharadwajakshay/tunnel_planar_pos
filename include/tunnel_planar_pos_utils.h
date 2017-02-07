@@ -7,6 +7,8 @@
 
 #ifndef TUNNEL_PLANAR_POS_INCLUDE_TUNNEL_PLANAR_POS_UTILS_H_
 #define TUNNEL_PLANAR_POS_INCLUDE_TUNNEL_PLANAR_POS_UTILS_H_
+#include <iostream>
+#include <fstream>
 
 #include "ros/ros.h"
 #include "std_msgs/String.h"
@@ -77,7 +79,6 @@
 
 
 #include <sstream>
-#include <vector>
 
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/io/point_cloud_image_extractors.h>
@@ -85,6 +86,8 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/features/integral_image_normal.h>
 #include <pcl/visualization/cloud_viewer.h>
+
+///#include <chrono>
 
 
 //#include <boost/circular_buffer/base.hpp>
@@ -95,38 +98,89 @@ extern std::string topic_imu;
 
 #define IMU_TIME_DELAY 1400
 #define SIZE_OF_VECTOR 500
+#define PLANAR_FIT 1
+#define LINE_FIT 2
+#define NO_OF_SLICES 20
+#define NO_OF_SLICES_X 20
+#define MEDIAN_ELEMENT 9
+#define IMAGE_WIDTH 640
+#define IMAGE_HEIGHT 480
+#define IMAGE_DEPTH 3
+
+#define _DISP_ALL_POINTS
 class tunnel_planar_pos
 {
 public:
 	tunnel_planar_pos();
+	~tunnel_planar_pos();
 	void callbackpointclouds(const sensor_msgs::PointCloud2::ConstPtr& msg);
-	void pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt);
+	void pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max);
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr imu_correction(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 	void image_segmentation(pcl::PointCloud<pcl::PointXYZRGB>  input_cloud);
 	void callbackpointimu(const xsens_slim::imuX::ConstPtr& msg);
 	void comp_hist_col_img(cv::Mat image);
-	pcl::ModelCoefficients plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud);
+	pcl::ModelCoefficients plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud, int func);
+	pcl::ModelCoefficients plane_est_svd(Eigen::MatrixXf points);
 	double angle_btw_planes(pcl::ModelCoefficients plane1, pcl::ModelCoefficients plane2);
 	double distance_frm_point_2_plane(pcl::PointXYZI point, pcl::ModelCoefficients plane);
 	void extract_inliers(pcl::ModelCoefficients xmin, pcl::ModelCoefficients xmax, pcl::ModelCoefficients ymin,pcl::ModelCoefficients ymax);
 	std::vector<double> chng_angl_orient(pcl::ModelCoefficients current_coeff, pcl::ModelCoefficients prev_coeff, pcl::ModelCoefficients first_coeff);
 	void normal_extrct_org_pc(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 	cv::Mat ExtractEdgeImg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud);
-	void ApplyHoughLineTranform(cv::Mat input_image);
+	cv::Mat ApplyHoughLineTranform(cv::Mat input_image);
+	void PlanarExtraction(pcl::PointCloud<pcl::PointXYZRGB> point_cloud);
+	std::vector<pcl::ModelCoefficients> process_single_slice(pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud);
+	pcl::PointCloud<pcl::PointXYZRGB> pc_segmentation_y(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt);
+	void parse_point_data(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
+	void array_segmentation(Eigen::Vector4f pt_min,Eigen::Vector4f pt_max);
+	void ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, float minx, float maxx,float miny, float maxy);
+	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 private:
 	ros::NodeHandle nh;
 	//Topics to subscribe
 	ros::Subscriber sub_pc;
 	ros::Subscriber sub_imu;
 	ros::Subscriber sub_img;
-	ros::Publisher pub_slices;
+	ros::Publisher pub_z_slices;
+	ros::Publisher pub_y_slices;
+	ros::Publisher pub_x_slices;
 	ros::Publisher pub_corrected_pc;
 	ros::Publisher pub_edge_img;
+	ros::Publisher pub_detected_img;
+
+#ifdef _DISP_ALL_POINTS
+	ros::Publisher pub_S0_xmin;
+	ros::Publisher pub_S0_xmax;
+	ros::Publisher pub_S0_ymin;
+	ros::Publisher pub_S0_ymax;
+
+	/*
+	ros::Publisher pub_S0_xmax;
+	ros::Publisher pub_S1_xmax;
+	ros::Publisher pub_S2_xmax;
+	ros::Publisher pub_S3_xmax;
+	ros::Publisher pub_S4_xmax;
+	ros::Publisher pub_S5_xmax;
+	ros::Publisher pub_S0_ymin;
+	ros::Publisher pub_S1_ymin;
+	ros::Publisher pub_S2_ymin;
+	ros::Publisher pub_S3_ymin;
+	ros::Publisher pub_S4_ymin;
+	ros::Publisher pub_S5_ymin;
+	ros::Publisher pub_S0_ymax;
+	ros::Publisher pub_S1_ymax;
+	ros::Publisher pub_S2_ymax;
+	ros::Publisher pub_S3_ymax;
+	ros::Publisher pub_S4_ymax;
+	ros::Publisher pub_S5_ymax;*/
+
+#endif
+
 	//ros::Publisher pub_xminp,pub_yminp,pub_xmaxp,pub_ymaxp;
 	ros::Publisher pub_ext_planes, pub_plane_extracted;
 	pcl::PointCloud<pcl::PointXYZI> all_planes;
 	pcl::PointCloud<pcl::PointXYZRGB> all_planes_RGB;
-	pcl::PointCloud<pcl::PointXYZRGB> xmin_pc, ymin_pc,xmax_pc,ymax_pc,slices_pc;
+	pcl::PointCloud<pcl::PointXYZRGB> xmin_pc, ymin_pc,xmax_pc,ymax_pc,slices_z_pc;
 	bool xmin,xmax,ymin,ymax;
 	bool coeff_valid;
 	std::vector <pcl::PointXYZRGB> xmin_points, xmax_points,ymin_points,ymax_points;
@@ -135,10 +189,16 @@ private:
 	int imu_loop_itr;
 	std::deque<xsens_slim::imuX> imu_message;
 
+	float points[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH];
+
 	pcl::PointCloud<pcl::PointXYZRGB> previous_cloud;
 	pcl::ModelCoefficients first_xmin_coeff, first_xmax_coeff, first_ymin_coeff, first_ymax_coeff;
 	pcl::ModelCoefficients prev_xmin_coeff, prev_xmax_coeff, prev_ymin_coeff, prev_ymax_coeff;
 
+	//FILE i/O operations
+	std::ofstream total_exe_time;
+	std::ofstream seg_pcl_time;
+	std::ofstream seg_array_time;
 };
 
 

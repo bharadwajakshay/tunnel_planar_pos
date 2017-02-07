@@ -14,72 +14,108 @@ tunnel_planar_pos::tunnel_planar_pos()
 	sub_pc=nh.subscribe(topic_pc.c_str(),1000,&tunnel_planar_pos::callbackpointclouds,this);
 	sub_imu=nh.subscribe(topic_imu.c_str(),1000,&tunnel_planar_pos::callbackpointimu,this);
 
-	pub_slices = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Slice_PC",1000);
+	pub_z_slices = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Slice_PC_Z",1000);
+	pub_y_slices = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Slice_PC_Y",1000);
+	pub_x_slices = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Slice_PC_X",1000);
 	pub_ext_planes = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/extracted_planes",1000);
 	pub_plane_extracted = nh.advertise<pcl::PointCloud<pcl::PointXYZI> >("/tunnel_planar_pos/pc_planes_removed",1000);
 	pub_corrected_pc = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/corrected_pt_cloud",1000);
 	pub_edge_img = nh.advertise<sensor_msgs::Image>("/tunnel_planar_pos/EdgeImage",1000);
+	pub_detected_img = nh.advertise<sensor_msgs::Image>("/tunnel_planar_pos/DetectedEdges",1000);
+
+#ifdef _DISP_ALL_POINTS
+	pub_S0_xmin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Xmin",1000);
+	pub_S0_xmax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Xmax",1000);
+	pub_S0_ymin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Ymin",1000);
+	pub_S0_ymax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Ymax",1000);
+#endif
 
 	xmin=false,xmax=false;ymin=false;ymax=false;
 	coeff_valid =false;
 	first_imu_msg = true;
 	imu_loop_itr = 0;
 	first_pc_msg = true;
+
+	//open file for file IO
+	total_exe_time.open("/home/nuc/Documents/total_exe_time.dat");
+	if(!total_exe_time.is_open())
+		std::cout<<"Error opening total_exe_time.dat file"<<std::endl;
+	else
+		total_exe_time.clear();
+	seg_array_time.open("/home/nuc/Documents/seg_array_time.dat");
+	if(!seg_array_time.is_open())
+		std::cout<<"Error opening seg_array_time.dat file"<<std::endl;
+	else
+		seg_array_time.clear();
+	seg_pcl_time.open("/home/nuc/Documents/seg_pcl_time.dat");
+	if(!seg_pcl_time.is_open())
+		std::cout<<"Error opening seg_pcl_time.dat file"<<std::endl;
+	else
+		seg_pcl_time.clear();
+}
+
+tunnel_planar_pos::~tunnel_planar_pos()
+{
+	if(total_exe_time.is_open())
+	{
+		total_exe_time.close();
+		std::cout<<"File total_exe_time.dat closed"<<std::endl;
+	}
+	if(seg_array_time.is_open())
+	{
+		std::cout<<"File seg_array_time.dat closed"<<std::endl;
+		seg_array_time.close();
+	}
+	if(seg_pcl_time.is_open())
+	{
+		std::cout<<"File seg_pcl_time.dat closed"<<std::endl;
+		seg_pcl_time.close();
+	}
+
+
 }
 
 void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
-	ros::Time start_time = ros::Time::now();
+	ros::Time start_time_main = ros::Time::now();
 	pcl::PCLPointCloud2 pcl_pc2;
-	double z1=NAN,z2=NAN,z3=NAN;
-
-	//set the origin of the sensors to x=0, y=0, z=0
-	pcl::PointXYZ origin(0,0,0);
 
 	// Convert to PCP PointCloud2 structure
 	pcl_conversions::toPCL(*msg,pcl_pc2);
-
-	pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-	pcl::PointCloud<pcl::PointXYZ>::Ptr slice_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr rgb_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr rgb_cloud_sliced(new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::PointCloud<pcl::PointXYZRGB> back_up_pc;
-	Eigen::Vector4f min_pt, max_pt;
-
-	// Convert to PCL PointCloud structure
-	pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
-
-	// Copy to the converted point cloud
-	pcl::copyPointCloud(*temp_cloud, *slice_cloud);
-
 	// Convert to PCL PointCloud structure with RGB data
 	pcl::fromPCLPointCloud2(pcl_pc2,*rgb_cloud);
-	pcl::fromPCLPointCloud2(pcl_pc2,back_up_pc);
-
+	// Calculate the minimum and the maximum points in the Point Cloud (Takes about 2-3ms
+	Eigen::Vector4f min_pt,max_pt;
 	pcl::getMinMax3D(*rgb_cloud,min_pt,max_pt);
+
+	ros::Time end_time_init = ros::Time::now();
+	std::cout<<"Total time taken for initialization is "<<end_time_init.toSec()- start_time_main.toSec()<<"Seconds"<<std::endl;
 #ifdef _DEBUG
 	std::cout<<"Minimum pt=\n\tx min = "<< min_pt[0]<< "\ty min = "<<min_pt[1]<<"\tz min ="<<min_pt[2]<<"\n";
 	std::cout<<"Maximum pt=\n\tx max = "<< max_pt[0]<< "\ty max = "<<max_pt[1]<<"\tz max ="<<max_pt[2]<< "\n";
 #endif
-
-	/*************************************************************************************
-	 * calculate normlas for all the points of organised pointclouds
-	 *************************************************************************************/
-	//this->normal_extrct_org_pc(rgb_cloud);
-
+	this->parse_point_data(rgb_cloud);
 	/*************************************************************************************
 	 * Extract the Edge image based on Depth discontinuty
 	 *************************************************************************************/
-	cv::Mat EdgeImg;
+/*	cv::Mat EdgeImg;
 	EdgeImg.release();
 	EdgeImg= this->ExtractEdgeImg(slice_cloud);
-	cv_bridge::CvImage out_msg;
-	out_msg.header   = msg->header; // Same timestamp and tf frame as input image
-	out_msg.encoding = sensor_msgs::image_encodings::MONO8; // Or whatever
-	out_msg.image    = EdgeImg;
+	cv_bridge::CvImage::Ptr out_msg(new cv_bridge::CvImage);
+	out_msg->header   = msg->header; // Same timestamp and tf frame as input image
+	out_msg->encoding = sensor_msgs::image_encodings::MONO8; // Or whatever
+	out_msg->image    = EdgeImg;
 	pub_edge_img.publish(out_msg);
 
-	this->ApplyHoughLineTranform(EdgeImg);
+	cv::Mat EdgeDetectedImg;
+	EdgeDetectedImg.release();
+	EdgeDetectedImg = this->ApplyHoughLineTranform(EdgeImg);pcl::copyPointCloud
+	cv_bridge::CvImage::Ptr out_img(new cv_bridge::CvImage);
+	out_img->header   = msg->header;
+	out_img->encoding = sensor_msgs::image_encodings::MONO8;
+	out_img->image    = EdgeDetectedImg;
+	pub_detected_img.publish(out_img);*/
 
 	/***********************************
 	 * Extract image from point cloud
@@ -89,138 +125,11 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	ymin_pc.clear();
 	xmax_pc.clear();
 	ymax_pc.clear();
-	std::vector<int> indices_nan;
-	pcl::removeNaNFromPointCloud(*rgb_cloud,*rgb_cloud,indices_nan);
-
+	//std::vector<int> indices_nan;
+	//pcl::removeNaNFromPointCloud(*rgb_cloud,*rgb_cloud,indices_nan);
+	//this->array_segmentation(min_pt,max_pt);
 	this->pc_segmentation(rgb_cloud,min_pt,max_pt);
-
-	/*******************************************************************
-	 * publish Segmented POint clouds
-	 *******************************************************************/
-	//extract the Thermal image from the point cloud
-	this->image_segmentation(slices_pc);
-	/*************************************
-	 *  Disable IMU correction
-	 *************************************/
-	//pub_corrected_pc.publish(tunnel_planar_pos::imu_correction(rgb_cloud));
-
-	pcl::ModelCoefficients xmin_coeff, xmax_coeff, ymin_coeff, ymax_coeff;	//Defining the coefficients
-	/*********************************************************************************************
-	 * Estimate the planes using Singular value Decomposition
-	 ********************************************************************************************/
-	if(xmin)
-	{
-		xmin_coeff = this->plane_est_svd(xmin_pc);
-		std::cout<<"The xmin_coeff coefficents calculated using svd are\t"<<xmin_coeff.values[0]<<"\t"
-				<<xmin_coeff.values[1]<<"\t"<<xmin_coeff.values[2]<<"\t"<<xmin_coeff.values[3]<<std::endl;
-		std::cout<<"The distance between Origin and xmin plane is "<<xmin_coeff.values[3]<<std::endl;
-	}
-	if(xmax)
-	{
-		xmax_coeff = this->plane_est_svd(xmax_pc);
-		std::cout<<"The xmax_coeff coefficents calculated using svd are\t"<<xmax_coeff.values[0]<<"\t"
-				<<xmax_coeff.values[1]<<"\t"<<xmax_coeff.values[2]<<"\t"<<xmax_coeff.values[3]<<std::endl;
-		std::cout<<"The distance between Origin and xmax plane is "<<xmax_coeff.values[3]<<std::endl;
-	}
-	if(ymin)
-	{
-		ymin_coeff = this->plane_est_svd(ymin_pc);
-		std::cout<<"The ymin_coeff coefficents calculated using svd are\t"<<ymin_coeff.values[0]<<"\t"
-				<<ymin_coeff.values[1]<<"\t"<<ymin_coeff.values[2]<<"\t"<<ymin_coeff.values[3]<<std::endl;
-		std::cout<<"The distance between Origin and ymin plane is "<<ymin_coeff.values[3]<<std::endl;
-	}
-	if(ymax)
-	{
-		ymax_coeff = this->plane_est_svd(ymax_pc);
-		std::cout<<"The ymax_coeff coefficents calculated using svd are\t"<<ymax_coeff.values[0]<<"\t"
-				<<ymax_coeff.values[1]<<"\t"<<ymax_coeff.values[2]<<"\t"<<ymax_coeff.values[3]<<std::endl;
-		std::cout<<"The distance between Origin and ymax plane is "<<ymax_coeff.values[3]<<std::endl;
-	}
-	if(!((xmin||xmax)&&(ymin||ymax)))
-	{
-		std::cout<< "No measurement possible"<<std::endl;
-	}
-	/***********************************************************************************************
-	 *  Check for perpendicular planes between the X-plane and the Y-plane
-	 ***********************************************************************************************/
-	if(xmin)
-	{
-		if(ymin)
-			std::cout<<"The angle between xmin plane and ymin plane = "<<this->angle_btw_planes(xmin_coeff,ymin_coeff)<<std::endl;
-		if(ymax)
-			std::cout<<"The angle between xmin plane and ymax plane = "<<this->angle_btw_planes(xmin_coeff,ymax_coeff)<<std::endl;
-	}
-	else if(xmax)
-	{
-		if(ymin)
-			std::cout<<"The angle between xmax plane and ymin plane = "<<this->angle_btw_planes(xmax_coeff,ymin_coeff)<<std::endl;
-		if(ymax)
-			std::cout<<"The angle between xmax plane and ymax plane = "<<this->angle_btw_planes(xmax_coeff,ymax_coeff)<<std::endl;
-	}
-
-	/***********************************************************************************************
-	 *  Check for parallel planes between the X-plane and the Y-plane
-	 ***********************************************************************************************/
-
-	if(xmin && xmax)
-		std::cout<<"The angle between xmin plane and xmax plane = "<<this->angle_btw_planes(xmin_coeff,xmax_coeff)<<std::endl;
-	else if(ymin && ymax)
-		if(ymax)
-			std::cout<<"The angle between ymin plane and ymax plane = "<<this->angle_btw_planes(ymin_coeff,ymax_coeff)<<std::endl;
-
-	/*****************************************************************************************************
-	 * Manually extract the inliers to the pointcloud by caluclating the eucledean distance
-	 *****************************************************************************************************/
-	this->extract_inliers(xmin_coeff,xmax_coeff,ymin_coeff,ymax_coeff);
-
-	/******************************************************************************************************
-	 * Publish the individual pointclouds
-	 ******************************************************************************************************/
-	all_planes.header = rgb_cloud->header;
-	/*pcl::PointCloud<pcl::PointXYZRGB> pc_planes_sub;
-	pc_planes_sub = back_up_pc - all_planes_RGB;*/
-	//pc_planes_sub.header = rgb_cloud->header;
-	pub_ext_planes.publish(all_planes);
-	//pub_plane_extracted.publish(pc_planes_sub);
-
-	/********************************************************************************************************
-	 * Calculate the change in orientation from 1st msg and change in angle between successive measurements
-	 * the angle stack up in the vector is
-	 * 1. change in angle from previous msg
-	 * 2. Change in angle btw 1st msg and current msg
-	 ********************************************************************************************************/
-	//std::vector<double> angles;
-/*	double delta_roll,roll, delta_pitch, delta_yaw, pitch, yaw;
-	if(!first_pc_msg)
-	{
-		//calculating the roll angles, give xmax 1st priority
-		if(xmax)
-		{
-			//angles = this->chng_angl_orient(xmax_coeff,prev_xmax_coeff,first_xmax_coeff);
-			delta_roll = this->angle_btw_planes(xmax_coeff,prev_xmax_coeff);
-			std::cout<<"The previous xmax coefficients are\t"<<prev_xmax_coeff.values[0]<<"\t"
-							<<prev_xmax_coeff.values[1]<<"\t"<<prev_xmax_coeff.values[2]<<"\t"<<prev_xmax_coeff.values[3]<<std::endl;
-		}
-		else if(xmin)
-			delta_roll = this->angle_btw_planes(xmin_coeff,prev_xmin_coeff);
-
-		//calculating the roll angles, give xmax 1st priority
-		if(ymax)
-		{
-			delta_pitch = this->angle_btw_planes(ymax_coeff,prev_ymax_coeff);
-			std::cout<<"The previous ymax coefficients calculated using svd are\t"<<prev_ymax_coeff.values[0]<<"\t"
-										<<prev_ymax_coeff.values[1]<<"\t"<<prev_ymax_coeff.values[2]<<"\t"<<prev_ymax_coeff.values[3]<<std::endl;
-		}
-		else if(ymin)
-			delta_pitch = this->angle_btw_planes(xmin_coeff,prev_ymin_coeff);
-
-		//add yaw here
-
-		std::cout<<"The Delta roll is " << delta_roll<<" delta pitch is " << delta_pitch<<std::endl;
-	}
-
-*/
-
+	//this->pc_segmentation_y(back_up_pc,min_pt,max_pt);
 
 	/************************************************************************************************************
 	 * Note: DO NOT COMMENT OR REMOVE!!! Other wise causes error during SVD calculation
@@ -228,30 +137,23 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	 ************************************************************************************************************/
 	xmin = false; xmax = false; ymin = false; ymax = false;
 
-	ros::Time end_time = ros::Time::now();
-	std::cout<<"Total time taken for execution is "<<end_time.toSec()- start_time.toSec() <<"Seconds"<<std::endl;
+	ros::Time end_time_main = ros::Time::now();
+	if(total_exe_time.is_open())
+		total_exe_time<<end_time_main.toSec() - start_time_main.toSec()<<std::endl;
+	else
+		std::cout<<"Total time taken for execution is "<<end_time_main.toSec() - start_time_main.toSec() <<"Seconds"<<std::endl;
 	pcl::fromPCLPointCloud2(pcl_pc2,previous_cloud);
-	prev_xmax_coeff = xmax_coeff;
-	prev_xmin_coeff = xmin_coeff;
-	prev_ymax_coeff = ymax_coeff;
-	prev_ymin_coeff = ymin_coeff;
-	if(first_pc_msg)
-	{
-		first_pc_msg = false;
-		first_xmax_coeff = xmax_coeff;
-		first_xmin_coeff = xmin_coeff;
-		first_ymax_coeff = ymax_coeff;
-		first_ymin_coeff = ymin_coeff;
-	}
 	std::cout<<std::endl<<std::endl<<std::endl;
 }
 
 /****************************************************************************************
+ * pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud)
  * Extraction of planar equations from the segmented point clouds
  ***************************************************************************************/
-pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud)
+pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::PointXYZRGB> point_cloud, int func)
 {
 	ros::Time SVD_start_time = ros::Time::now();
+	pcl::ModelCoefficients normals;
 	Eigen::MatrixXd points_3D(3,point_cloud.width);
 	//assigning the points from point cloud to matrix
 	for (int i=0;i<point_cloud.width;i++)
@@ -275,11 +177,69 @@ pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::Poi
 	Eigen::MatrixXd U_MAT = svd.matrixU();
 	//std::cout<<"U matrix transpose is:"<<U_MAT<<std::endl<<std::endl<<"U matrix is:"<<svd.matrixU()<<std::endl;
 
+	if(func == PLANAR_FIT)
+	{
+		/*********************************************************************************************
+		 * caculating d by sybstituting the centroid back in the quation
+		 * 		aCx+bCy+cCz = -d
+		 ********************************************************************************************/
+		//double d = -((U_MAT(0,2)*points_3D(0,1))+ (U_MAT(1,2)*points_3D(1,1)) + (U_MAT(1,2)*points_3D(1,2)));
+		double d = -((U_MAT(0,2)*centroid(0))+ (U_MAT(1,2)*centroid(1)) + (U_MAT(2,2)*centroid(2)));
+
+		/* check if the distance calculated from the origin is -ve if yes,
+	   change the direction of the normal*/
+		if(d<0)
+		{
+			U_MAT.col(2) = -U_MAT.col(2);
+			d = -d;
+		}
+
+		normals.values.push_back(U_MAT(0,2));
+		normals.values.push_back(U_MAT(1,2));
+		normals.values.push_back(U_MAT(2,2));
+		normals.values.push_back(d);
+		ros::Time SVD_end_time = ros::Time::now();
+		std::cout<<"Total time taken for Planar segmentation using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
+
+	}
+	else if (func == LINE_FIT)
+	{
+		normals.values.push_back(U_MAT(0,0));
+		normals.values.push_back(U_MAT(1,0));
+		normals.values.push_back(U_MAT(2,0));
+		ros::Time SVD_end_time = ros::Time::now();
+		std::cout<<"Total time taken for Planar segmentation using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
+	}
+	return(normals);
+}
+
+/****************************************************************************************
+ * pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(Eigen::MatrixXd points)
+ * Extraction of planar equations from the points
+ ***************************************************************************************/
+pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(Eigen::MatrixXf points)
+{
+	ros::Time SVD_start_time = ros::Time::now();
+
+	// calcaulating the centroid of the pointcloud
+	Eigen::MatrixXf centroid = points.rowwise().mean();
+	//std::cout<<"The centroid of the pointclouds is given by:\t"<<centroid<<std::endl;
+
+	//subtract the centroid from points
+	points.row(0).array() -= centroid(0);
+	points.row(1).array() -= centroid(1);
+	points.row(2).array() -= centroid(2);
+
+	//calculate the SVD of points matrix
+	Eigen::JacobiSVD<Eigen::MatrixXf> svd(points,Eigen::ComputeThinU);
+	Eigen::MatrixXf U_MAT = svd.matrixU();
+	//std::cout<<"U matrix transpose is:"<<U_MAT<<std::endl<<std::endl<<"U matrix is:"<<svd.matrixU()<<std::endl;
+
 	/*********************************************************************************************
 	 * caculating d by sybstituting the centroid back in the quation
 	 * 		aCx+bCy+cCz = -d
 	 ********************************************************************************************/
-	//double d = -((U_MAT(0,2)*points_3D(0,1))+ (U_MAT(1,2)*points_3D(1,1)) + (U_MAT(1,2)*points_3D(1,2)));
+	//double d = -((U_MAT(0,2)*points(0,1))+ (U_MAT(1,2)*points(1,1)) + (U_MAT(1,2)*points(1,2)));
 	double d = -((U_MAT(0,2)*centroid(0))+ (U_MAT(1,2)*centroid(1)) + (U_MAT(2,2)*centroid(2)));
 
 	/* check if the distance calculated from the origin is -ve if yes,
@@ -296,82 +256,165 @@ pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(pcl::PointCloud<pcl::Poi
 	normals.values.push_back(U_MAT(2,2));
 	normals.values.push_back(d);
 	ros::Time SVD_end_time = ros::Time::now();
-	std::cout<<"Total time taken for Planar segmentation using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
+	//std::cout<<"Total time taken for normal extraction using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
+	std::cout<<SVD_end_time.toSec()- SVD_start_time.toSec() <<std::endl;
 	return(normals);
 
 }
 
-void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt)
+void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max)
 {
-	ros::Time seg_start_time = ros::Time::now();
-	std::vector <pcl::PointCloud<pcl::PointXYZRGB> > segmented_pc;
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmin_plane (new pcl::PointCloud<pcl::PointXYZRGB>),ymin_plane (new pcl::PointCloud<pcl::PointXYZRGB>),
-			xmax_plane (new pcl::PointCloud<pcl::PointXYZRGB>),ymax_plane(new pcl::PointCloud<pcl::PointXYZRGB>),slices (new pcl::PointCloud<pcl::PointXYZRGB>);
-	xmin_plane->header=input_cloud->header;
-	ymin_plane->header=input_cloud->header;
-	xmax_plane->header=input_cloud->header;
-	ymax_plane->header=input_cloud->header;
-	slices->header=input_cloud->header;
-	xmin_plane->clear();
-	ymin_plane->clear();
-	xmax_plane->clear();
-	ymax_plane->clear();
-	slices->clear();
-	for(int i=0;i<input_cloud->width;i++)
-	{
-		if((input_cloud->at(i).x!=0) && (input_cloud->at(i).y!=0)&&((input_cloud->at(i).z!=0)&&(input_cloud->at(i).z<7)))
-			if((min_pt[0]-input_cloud->at(i).x<0)&&(min_pt[0]-input_cloud->at(i).x>-0.2))
-				xmin_plane->push_back(input_cloud->at(i));
-			else if((min_pt[1]-input_cloud->at(i).y<0)&&((min_pt[1]-input_cloud->at(i).y)>-0.2))
-				ymin_plane->push_back(input_cloud->at(i));
-			else if((max_pt[0]-input_cloud->at(i).x)<0.20)
-				xmax_plane->push_back(input_cloud->at(i));
-			else if((max_pt[1]-input_cloud->at(i).y)<0.20)
-				ymax_plane->push_back(input_cloud->at(i));
-			else
-				if(((input_cloud->at(i).z >1.9) && (input_cloud->at(i).z < 1.95))
-						||((input_cloud->at(i).z >1.4) && (input_cloud->at(i).z < 1.45))
-						||((input_cloud->at(i).z >2.4) && (input_cloud->at(i).z < 2.45))
-						||((input_cloud->at(i).z >2.9) && (input_cloud->at(i).z < 2.95))
-						||((input_cloud->at(i).z >3.4) && (input_cloud->at(i).z < 3.45)))
-				{
-					if ((input_cloud->at(i).z >1.9) && (input_cloud->at(i).z < 1.95))
-						input_cloud->at(i).z=1.9;
-					else if ((input_cloud->at(i).z >2.4) && (input_cloud->at(i).z < 2.45))
-						input_cloud->at(i).z=2.4;
-					else if ((input_cloud->at(i).z >1.4) && (input_cloud->at(i).z < 1.45))
-						input_cloud->at(i).z=1.4;
-					else if ((input_cloud->at(i).z >2.9) && (input_cloud->at(i).z < 2.95))
-						input_cloud->at(i).z=2.9;
-					else
-						input_cloud->at(i).z=3.4;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_0;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_1;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_2;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_3;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_4;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_5;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_z;
+	pcl::PointCloud<pcl::PointXYZRGB> slice_y(input_cloud->width,input_cloud->height);
+	pcl::PointCloud<pcl::PointXYZRGB> slice_x(input_cloud->width,input_cloud->height);
 
-					slices->push_back(input_cloud->at(i));
+	//clearing pointclouds
+	slice_0.clear();
+	slice_1.clear();
+	slice_2.clear();
+	slice_3.clear();
+	slice_4.clear();
+	slice_5.clear();
+	slice_z.clear();
+
+	float xmin0=100, xmin1=100, xmin2=100, xmin3=100, xmin4=100, xmin5=100;
+	float ymin0=100, ymin1=100, ymin2=100, ymin3=100, ymin4=100, ymin5=100;
+	float xmax0=-100, xmax1=-100, xmax2=-100, xmax3=-100, xmax4=-100, xmax5=-100;
+	float ymax0=-100, ymax1=-100, ymax2=-100, ymax3=-100, ymax4=-100, ymax5=-100;
+
+
+	//Slices for Y direction
+	Eigen::VectorXf slice_pts_y(NO_OF_SLICES);
+	Eigen::VectorXf diff_y(NO_OF_SLICES);
+	Eigen::VectorXf slice_pts_x(NO_OF_SLICES_X);
+	Eigen::VectorXf diff_x(NO_OF_SLICES_X);
+
+	//Slice Vector Y
+	double dist_btw_slice = (pt_max[1] - pt_min[1])/NO_OF_SLICES;
+	for(int i=1; i<=NO_OF_SLICES;i++)
+		slice_pts_y[i-1] = pt_min[1] + (i*dist_btw_slice);
+
+	//Slice Vector X
+	dist_btw_slice = (pt_max[0] - pt_min[0])/NO_OF_SLICES_X;
+	for(int i=1; i<=NO_OF_SLICES_X;i++)
+		slice_pts_x[i-1] = pt_min[1] + (i*dist_btw_slice);
+
+	ros::Time start_for_loop_time = ros::Time::now();
+	for(int ii=0;ii<input_cloud->width;ii++)
+		for(int jj=0;jj<input_cloud->height;jj++)
+		{
+			pcl::PointXYZRGB point = input_cloud->at(ii,jj);
+			if((pcl_isfinite(point.z)))
+			{
+				if((point.z > 0.9)&&(point.z < 1))
+				{
+					slice_0.push_back(point);
 				}
-	}
-	if(xmin_plane->width>3000)
+				else if ((point.z > 1.4)&&(point.z < 1.5))
+				{
+					slice_1.push_back(point);
+				}
+				else if((point.z > 1.9)&&(point.z < 2))
+				{
+					slice_2.push_back(point);
+				}
+				else if ((point.z > 2.4)&&(point.z < 2.5))
+				{
+					slice_3.push_back(point);
+				}
+				else if((point.z > 2.9)&&(point.z < 3))
+				{
+					slice_4.push_back(point);
+				}
+				else if ((point.z > 3.4)&&(point.z < 3.5))
+				{
+					slice_5.push_back(point);
+				}
+			}
+			if((pcl_isfinite(point.y)))
+			{
+				diff_y = slice_pts_y - (point.y * Eigen::VectorXf::Ones(NO_OF_SLICES));
+				diff_y=diff_y.array().abs();
+				std::sort(diff_y.data(),diff_y.data()+NO_OF_SLICES,std::less<float>());
+				if(diff_y[0]<0.005)
+				{
+					slice_y.at(ii,jj)=point;
+				}
+			}
+			if((pcl_isfinite(point.x)))
+			{
+				diff_x = slice_pts_x - (point.x * Eigen::VectorXf::Ones(NO_OF_SLICES_X));
+				diff_x=diff_x.array().abs();
+				std::sort(diff_x.data(),diff_x.data()+NO_OF_SLICES_X,std::less<float>());
+				if(diff_x[0]<0.005)
+				{
+					slice_x.at(ii,jj)=point;
+				}
+			}
+		}
+	ros::Time end_for_loop_time = ros::Time::now();
+	if(seg_pcl_time.is_open())
+		seg_pcl_time<<end_for_loop_time.toSec() - start_for_loop_time.toSec()<<std::endl;
+	else
+		std::cout<<"Segmented Point Cloud for Z slices "<<end_for_loop_time.toSec() - start_for_loop_time.toSec()<<" seconds"<<std::endl;
+	ros::Time start_pc_add_time = ros::Time::now();
+	slice_z = slice_0 + slice_1;
+	slice_z += slice_2;
+	slice_z += slice_3;
+	slice_z += slice_4;
+	slice_z += slice_5;
+	pcl::copyPointCloud(slice_z,slices_z_pc);
+	ros::Time end_pc_add_time = ros::Time::now();
+	std::cout<<"Adding and Publishing Point Cloud for Z slices "<<end_pc_add_time.toSec() - start_pc_add_time.toSec()<<" seconds"<<std::endl;
+	// Publish point clouds
+	slices_z_pc.header = input_cloud->header;
+	slice_x.header = input_cloud->header;
+	slice_y.header = input_cloud->header;
+	pub_x_slices.publish(slice_x);
+	pub_y_slices.publish(slice_y);
+	pub_z_slices.publish(slices_z_pc);
+
+	//Processing Slices
+	ros::Time strt_slice_proc_time = ros::Time::now();
+	if(slice_0.width>500)
 	{
-		pcl::copyPointCloud(*xmin_plane,xmin_pc);
-		xmin=true;
+		this->ProcessSingleSlice(slice_0,xmin0,xmax0,ymin0,ymax0);
+		std::cout<<"Processing Slice 0"<<std::endl;
 	}
-	if(ymin_plane->width>3000)
+	if(slice_1.width>500)
 	{
-		pcl::copyPointCloud(*ymin_plane,ymin_pc);
-		ymin=true;
+		this->ProcessSingleSlice(slice_1,xmin1,xmax1,ymin1,ymax1);
+		std::cout<<"Processing Slice 1"<<std::endl;
 	}
-	if(xmax_plane->width>3000)
+	if(slice_2.width>500)
 	{
-		pcl::copyPointCloud(*xmax_plane,xmax_pc);
-		xmax=true;
+		this->ProcessSingleSlice(slice_2,xmin2,xmax2,ymin2,ymax2);
+		std::cout<<"Processing Slice 2"<<std::endl;
 	}
-	if(ymax_plane->width>3000)
+	if(slice_3.width>500)
 	{
-		pcl::copyPointCloud(*ymax_plane,ymax_pc);
-		ymax=true;
+		this->ProcessSingleSlice(slice_3,xmin3,xmax3,ymin3,ymax3);
+		std::cout<<"Processing Slice 3"<<std::endl;
 	}
-	pcl::copyPointCloud(*slices,slices_pc);
-	ros::Time seg_end_time = ros::Time::now();
-	std::cout<<"Total time taken for Segmentation of point cloud is "<<seg_end_time.toSec()- seg_start_time.toSec() <<"Seconds"<<std::endl;
+	if(slice_4.width>500)
+	{
+		this->ProcessSingleSlice(slice_4,xmin4,xmax4,ymin4,ymax4);
+		std::cout<<"Processing Slice 4"<<std::endl;
+	}
+	if(slice_5.width>500)
+	{
+		this->ProcessSingleSlice(slice_5,xmin0,xmax5,ymin5,ymax5);
+		std::cout<<"Processing Slice 5"<<std::endl;
+	}
+	ros::Time end_slice_proc_time = ros::Time::now();
+	std::cout<<"Processing each Z slice for 1 cloud takes "<<end_slice_proc_time.toSec() - strt_slice_proc_time.toSec()<<" seconds"<<std::endl;
+
 }
 
 
@@ -442,8 +485,16 @@ double tunnel_planar_pos::angle_btw_planes(pcl::ModelCoefficients plane1, pcl::M
 	double mag_p2 = std::sqrt((plane2.values.at(0)*plane2.values.at(0))
 			+ (plane2.values.at(1) * plane2.values.at(1))
 			+ (plane2.values.at(2) * plane2.values.at(2)));
-	double angle = std::acos(dot_prod/(mag_p1 + mag_p2));
-	return((angle*180)/M_PI);
+	double angle = pcl::rad2deg(std::acos(dot_prod/(mag_p1 * mag_p2)));
+
+	//Calculation of angles from PCL library
+	Eigen::Vector4f norm1(plane1.values.data());
+	Eigen::Vector4f norm2(plane2.values.data());
+	//norm1<<plane1.values.at(0),plane1.values.at(1),plane1.values.at(2),plane1.values.at(3);
+	//norm2<< plane2.values.at(0), plane2.values.at(1), plane2.values.at(2), plane2.values.at(3);
+	double angle_2 = pcl::rad2deg(pcl::getAngle3D(norm1,norm2));
+	std::cout<<"Angle Dot Prod = "<<angle<<"\tSngle PCL method = "<<angle_2<<std::endl;
+	return(angle);
 }
 
 /****************************************************************************************************
@@ -532,35 +583,54 @@ void tunnel_planar_pos::normal_extrct_org_pc(pcl::PointCloud<pcl::PointXYZRGB>::
 	pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
 	pcl::IntegralImageNormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
 	ne.setNormalEstimationMethod (ne.AVERAGE_3D_GRADIENT);
-	ne.setMaxDepthChangeFactor(0.02f);
-	ne.setNormalSmoothingSize(10.0f);
+	ne.useSensorOriginAsViewPoint(); // Selects the sensor origin as view point, All the nomrals are wrt to this viwe point
+	ne.setMaxDepthChangeFactor(0.05f);
+	ne.setNormalSmoothingSize(30.0f);
 	ne.setInputCloud(input_cloud);
 	ne.compute(*normals);
-	// visualize normals
-	pcl::visualization::PCLVisualizer viewer("PCL Viewer");
-	viewer.setBackgroundColor (0.0, 0.0, 0.5);
-	viewer.addPointCloudNormals<pcl::PointXYZRGB,pcl::Normal>(input_cloud, normals);
 	ros::Time end_time = ros::Time::now();
-	std::cout<<"Time taken to calculate the normals from organised pointclouds is "<< end_time.toSec()-start_time.toSec()<<std::endl;
-	while (!viewer.wasStopped ())
-	{
-		viewer.spinOnce ();
-	}
+	pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::copyPointCloud(*input_cloud,*point_cloud);
+
+	pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals (new pcl::PointCloud<pcl::PointNormal>);
+
+	pcl::copyPointCloud(*point_cloud, *cloud_with_normals);
+	pcl::copyPointCloud(*normals, *cloud_with_normals);
+	pcl::io::savePCDFileASCII("~/test.pcd", *cloud_with_normals);
 }
 
-/*********************************************************************************************
- * Calculates the change in orientation and change in angle
- * internally used this->angle_btw_planes() function to calculate the angle
- * the angle stack up in the vector is
- * 1. change in angle from previous msg
- * 2. Change in angle btw 1st msg and current msg
- *********************************************************************************************/
-std::vector<double> tunnel_planar_pos::chng_angl_orient(pcl::ModelCoefficients current_coeff, pcl::ModelCoefficients prev_coeff, pcl::ModelCoefficients first_coeff)
+void tunnel_planar_pos::PlanarExtraction(pcl::PointCloud<pcl::PointXYZRGB> point_cloud)
 {
-	std::vector<double> angle_orentation;
-	angle_orentation.push_back(this->angle_btw_planes(current_coeff,prev_coeff));
-	angle_orentation.push_back(this->angle_btw_planes(current_coeff,first_coeff));
-	return(angle_orentation);
+	ros::Time SVD_start_time = ros::Time::now();
+	pcl::ModelCoefficients est_norm_vect;
+	if(!point_cloud.isOrganized())
+	{
+		ROS_INFO_STREAM("Error: The Point cloud is not organised");
+		return;
+	}
+	for(int i=1;i<8;i++)
+		for(int j=1;j<8;j++)
+		{
+			Eigen::MatrixXf sub_points(3,(point_cloud.height/8)*(point_cloud.width/8)); //Initialize the matrix to maximum points
+			int count =0; //initialize a point counter
+			for(int ii=i-1;ii<point_cloud.height/8;ii++)
+				for(int jj=j-1;jj<point_cloud.width/8;jj++)
+				{
+					if(!(std::isnan(point_cloud.at(jj,ii).x)||std::isnan(point_cloud.at(jj,ii).y)||std::isnan(point_cloud.at(jj,ii).z)))
+					{
+						sub_points(0,count) = point_cloud.at(jj,ii).x;
+						sub_points(1,count) = point_cloud.at(jj,ii).y;
+						sub_points(2,count) = point_cloud.at(jj,ii).z;
+						count++;
+					}
+				}
+			sub_points = sub_points.block(0,0,3,(count-1));
+			est_norm_vect = this->plane_est_svd(sub_points);
+			/*std::cout<<"The Normal calculated using svd are\t"<<est_norm_vect.values[0]<<"\t"
+							<<est_norm_vect.values[1]<<"\t"<<est_norm_vect.values[2]<<"\t"<<est_norm_vect.values[3]<<std::endl;*/
+		}
+	ros::Time SVD_end_time = ros::Time::now();
+	std::cout<<"Total time taken for normal extraction using SVD of point cloud is "<<SVD_end_time.toSec()- SVD_start_time.toSec() <<"Seconds"<<std::endl;
 }
 
 void tunnel_planar_pos::callbackpointimu(const xsens_slim::imuX::ConstPtr& msg)
@@ -588,3 +658,290 @@ void tunnel_planar_pos::callbackpointimu(const xsens_slim::imuX::ConstPtr& msg)
 
 }
 
+
+void tunnel_planar_pos::parse_point_data(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+{
+	ros::Time data_parsing_start = ros::Time::now();
+	for(int i =0; i<input_cloud->width;i++)
+		for(int j=0;j<input_cloud->height;j++)
+		{
+			points[i][j][0]=input_cloud->at(i,j).x;
+			points[i][j][1]=input_cloud->at(i,j).y;
+			points[i][j][2]=input_cloud->at(i,j).z;
+		}
+	ros::Time data_parsing_end = ros::Time::now();
+	std::cout<<"Total time taken for parsing the data is "<<data_parsing_end.toSec()- data_parsing_start.toSec() <<"Seconds"<<std::endl;
+}
+
+
+void tunnel_planar_pos::array_segmentation(Eigen::Vector4f pt_min,Eigen::Vector4f pt_max)
+{
+	float slice_0[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_1[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_2[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_3[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_4[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_5[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_x[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+	float slice_y[IMAGE_WIDTH][IMAGE_HEIGHT][IMAGE_DEPTH]={0.0f/0.0f};
+
+	//Slices for Y direction
+	Eigen::VectorXf slice_pts_y(NO_OF_SLICES);
+	Eigen::VectorXf diff_y(NO_OF_SLICES);
+	Eigen::VectorXf slice_pts_x(NO_OF_SLICES_X);
+	Eigen::VectorXf diff_x(NO_OF_SLICES_X);
+
+	//Slice Vector Y
+	double dist_btw_slice = (pt_max[1] - pt_min[1])/NO_OF_SLICES;
+	for(int i=1; i<=NO_OF_SLICES;i++)
+		slice_pts_y[i-1] = pt_min[1] + (i*dist_btw_slice);
+
+	//Slice Vector X
+	dist_btw_slice = (pt_max[0] - pt_min[0])/NO_OF_SLICES_X;
+	for(int i=1; i<=NO_OF_SLICES_X;i++)
+		slice_pts_x[i-1] = pt_min[1] + (i*dist_btw_slice);
+
+	ros::Time start_for_loop_time = ros::Time::now();
+	for(int ii=0;ii<IMAGE_WIDTH;ii++)
+		for(int jj=0;jj<IMAGE_HEIGHT;jj++)
+		{
+			if((std::isfinite(points[ii][jj][2])))
+			{std::cout<<"Processing Slice 0"<<std::endl;
+				if((points[ii][jj][2]> 0.9)&&(points[ii][jj][2] < 1))
+				{
+					slice_0[ii][jj][0] = points[ii][jj][0];
+					slice_0[ii][jj][1] = points[ii][jj][1];
+					slice_0[ii][jj][2] = points[ii][jj][2];
+				}
+				else if ((points[ii][jj][2] > 1.4)&&(points[ii][jj][2] < 1.5))
+				{
+					slice_1[ii][jj][0] = points[ii][jj][0];
+					slice_1[ii][jj][1] = points[ii][jj][1];
+					slice_1[ii][jj][2] = points[ii][jj][2];
+				}
+				else if((points[ii][jj][2] > 1.9)&&(points[ii][jj][2] < 2))
+				{
+					slice_2[ii][jj][0] = points[ii][jj][0];
+					slice_2[ii][jj][1] = points[ii][jj][1];
+					slice_2[ii][jj][2] = points[ii][jj][2];
+				}
+				else if ((points[ii][jj][2] > 2.4)&&(points[ii][jj][2] < 2.5))
+				{
+					slice_3[ii][jj][0] = points[ii][jj][0];
+					slice_3[ii][jj][1] = points[ii][jj][1];
+					slice_3[ii][jj][2] = points[ii][jj][2];
+				}
+				else if((points[ii][jj][2] > 2.9)&&(points[ii][jj][2] < 3))
+				{
+					slice_4[ii][jj][0] = points[ii][jj][0];
+					slice_4[ii][jj][1] = points[ii][jj][1];
+					slice_4[ii][jj][2] = points[ii][jj][2];
+				}
+				else if ((points[ii][jj][2] > 3.4)&&(points[ii][jj][2] < 3.5))
+				{
+					slice_5[ii][jj][0] = points[ii][jj][0];
+					slice_5[ii][jj][1] = points[ii][jj][1];
+					slice_5[ii][jj][2] = points[ii][jj][2];
+				}
+			}
+			if(std::isfinite(points[ii][jj][1]))
+			{
+				diff_y = slice_pts_y - (points[ii][jj][1] * Eigen::VectorXf::Ones(NO_OF_SLICES));
+				diff_y=diff_y.array().abs();
+				std::sort(diff_y.data(),diff_y.data()+NO_OF_SLICES,std::less<float>());
+				if(diff_y[0]<0.005)
+				{
+					slice_y[ii][jj][0] = points[ii][jj][0];
+					slice_y[ii][jj][1] = points[ii][jj][1];
+					slice_y[ii][jj][2] = points[ii][jj][2];
+				}
+			}
+			if(std::isfinite(points[ii][jj][1]))
+			{
+				diff_x = slice_pts_x - (points[ii][jj][0] * Eigen::VectorXf::Ones(NO_OF_SLICES_X));
+				diff_x=diff_x.array().abs();
+				std::sort(diff_x.data(),diff_x.data()+NO_OF_SLICES_X,std::less<float>());
+				if(diff_x[0]<0.005)
+				{
+					slice_x[ii][jj][0] = points[ii][jj][0];
+					slice_x[ii][jj][1] = points[ii][jj][1];
+					slice_x[ii][jj][2] = points[ii][jj][2];
+				}
+			}
+		}
+	ros::Time end_for_loop_time = ros::Time::now();
+	if(seg_array_time.is_open())
+		seg_array_time<<end_for_loop_time.toSec() - start_for_loop_time.toSec()<<std::endl;
+	else
+		std::cout<<"Z slices Segmentation as Arrays "<<end_for_loop_time.toSec() - start_for_loop_time.toSec()<<" nano seconds"<<std::endl;
+}
+
+void tunnel_planar_pos::ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, float minx, float maxx,float miny, float maxy)
+{
+	/*Eigen::MatrixXf xmin(slice.width,3);
+	Eigen::MatrixXf ymin(slice.width,3);
+	Eigen::MatrixXf xmax(slice.width,3);
+	Eigen::MatrixXf ymax(slice.width,3);
+	int xmin_count = 0, ymin_count = 0,xmax_count = 0,ymax_count = 0;
+	for(int i=0;i<slice.width;i++)
+	{
+		pcl::PointXYZRGB point = slice.at(i);
+		if(std::fabs(minx-point.x)<0.02)
+		{
+			xmin(xmin_count,0) =point.x;
+			xmin(xmin_count,1) =point.y;
+			xmin(xmin_count,2) =point.z;
+			xmin_count++;
+		}
+		if(std::fabs(miny-point.y)<0.02)
+		{
+			ymin(ymin_count,0) =point.x;
+			ymin(ymin_count,1) =point.y;
+			ymin(ymin_count,2) =point.z;
+			ymin_count++;
+		}
+		if(std::fabs(maxx-point.x)<0.015)
+		{
+			xmax(xmax_count,0) =point.x;
+			xmax(xmax_count,1) =point.y;
+			xmax(xmax_count,2) =point.z;
+			xmax_count++;
+		}
+		if(std::fabs(maxy-point.y)<0.015)
+		{
+			ymax(ymax_count,0) =point.x;
+			ymax(ymax_count,1) =point.y;
+			ymax(ymax_count,2) =point.z;
+			ymax_count++;
+		}
+	}
+	if(xmin_count>50)
+		this->plane_est_svd(xmin);
+	if(xmax_count>50)
+		this->plane_est_svd(xmax);
+	if(ymin_count>50)
+		this->plane_est_svd(ymin);
+	if(ymax_count>50)
+		this->plane_est_svd(ymax);*/
+
+	//get min max
+	Eigen::Vector4f min, max;
+	pcl::getMinMax3D(slice,min,max);
+
+	minx = min[0];
+	maxx = max[0];
+	miny = min[1];
+	maxy = max[1];
+
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmin(new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymin(new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmax(new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymax(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+	int xmin_count = 0, ymin_count = 0,xmax_count = 0,ymax_count = 0;
+	for(int i=0;i<slice.width;i++)
+	{
+		pcl::PointXYZRGB point = slice.at(i);
+		if(std::fabs(minx-point.x)<0.02)
+		{
+			xmin->push_back(point);
+			xmin_count++;
+		}
+		if(std::fabs(miny-point.y)<0.02)
+		{
+			ymin->push_back(point);
+			ymin_count++;
+		}
+		if(std::fabs(maxx-point.x)<0.02)
+		{
+			xmax->push_back(point);
+			xmax_count++;
+		}
+		if(std::fabs(maxy-point.y)<0.02)
+		{
+			ymax->push_back(point);
+			ymax_count++;
+		}
+	}
+	xmax->header = slices_z_pc.header;
+	xmin->header = slices_z_pc.header;
+	ymin->header = slices_z_pc.header;
+	ymax->header = slices_z_pc.header;
+
+	//publish all slices
+	pub_S0_xmax.publish(xmax);
+	pub_S0_xmin.publish(xmin);
+	pub_S0_ymax.publish(ymax);
+	pub_S0_ymin.publish(ymin);
+
+	if(xmin_count>50)
+	{
+		Eigen::VectorXf xmin_line = this->LineEsitmationRANSAC(xmin);
+		std::cout<<"The Line coefficients of Xmin slice "<<xmin_line.transpose()<<std::endl;
+	}
+	if(xmax_count>50)
+	{
+		Eigen::VectorXf xmax_line = this->LineEsitmationRANSAC(xmax);
+		std::cout<<"The Line coefficients of Xmax slice "<<xmax_line.transpose()<<std::endl;
+	}
+	if(ymin_count>50)
+	{
+		Eigen::VectorXf ymin_line = this->LineEsitmationRANSAC(ymin);
+		std::cout<<"The Line coefficients of Ymin slice "<<ymin_line.transpose()<<std::endl;
+	}
+	if(ymax_count>50)
+	{
+		Eigen::VectorXf ymax_line = this->LineEsitmationRANSAC(ymax);
+		std::cout<<"The Line coefficients of Ymax slice "<<ymax_line.transpose()<<std::endl;
+	}
+
+
+}
+
+Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+{
+	/*Eigen::VectorXf model_coeff(4);
+	std::vector<int> inliers;
+	pcl::SampleConsensusModelLine<pcl::PointXYZRGB>::Ptr line_model(new pcl::SampleConsensusModelLine<pcl::PointXYZRGB> (input_cloud));
+	pcl::RandomSampleConsensus<pcl::PointXYZRGB> ransac_method (line_model);
+	ransac_method.setDistanceThreshold(0.01);
+	ransac_method.getModelCoefficients(model_coeff);
+	std::cout<<"The Line coefficients are "<<model_coeff.transpose()<<std::endl;
+	return(model_coeff);*/
+	Eigen::VectorXf model_coeff(4);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+		pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+	// Create the segmentation object
+	pcl::SACSegmentation<pcl::PointXYZRGB> seg;
+	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+
+	// Optional
+	seg.setOptimizeCoefficients (true);
+	// Mandatory
+	seg.setModelType (pcl::SACMODEL_PLANE);
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setDistanceThreshold (0.005);
+	seg.setInputCloud(input_cloud);
+	seg.setEpsAngle(0.0872665); //Setting the angle epsilon (delta) threshold
+
+	seg.segment(*inliers,*coefficients );
+	if(inliers->indices.size()==0)
+		ROS_INFO("There are no lines in the point cloud\n");
+
+	model_coeff(0) =  coefficients->values.at(0);
+	model_coeff(1) =  coefficients->values.at(1);
+	model_coeff(2) =  coefficients->values.at(2);
+	model_coeff(3) =  coefficients->values.at(3);
+
+/*
+	// Extract the planar inliers from the input cloud
+	pcl::ExtractIndices<pcl::PointXYZ> extract;
+	extract.setInputCloud(*input_cloud);
+	extract.setIndices (inliers);
+	extract.setNegative (false);
+	extract.filter(*filtered_cloud);
+	extract.setNegative(true);*/
+	return(model_coeff);
+
+}

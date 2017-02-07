@@ -152,23 +152,24 @@ return(image);
 }
 
 
-void tunnel_planar_pos::ApplyHoughLineTranform(cv::Mat input_image)
+cv::Mat tunnel_planar_pos::ApplyHoughLineTranform(cv::Mat input_image)
 {
-	cv::Mat img_line(input_image.rows,input_image.cols, CV_8UC3);
+	cv::Mat img_line(input_image.rows,input_image.cols, CV_8UC1);
 	//cv::imshow("Input image",input_image);
 	cv::vector<cv::Vec4i> lines;
 	cv::HoughLinesP(input_image, lines, 1, CV_PI/180, 50, 50, 10 );
 	for( size_t i = 0; i < lines.size(); i++ )
 	{
 	  cv::Vec4i l = lines[i];
-	  cv::line( img_line, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0,0,255), 3, CV_AA);
+	  cv::line( img_line, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(255), 3, CV_AA);
 	}
-
+/*
 	cv::imshow("Input image",input_image);
 	if(!img_line.empty())
 		cv::imshow("Lines found in the Image", img_line);
 	else
 		std::cout<<"The line detcted image is empty\n";
 	cv::imshow("Lines found in the Image", img_line);
-	cv::waitKey(0);
+	cv::waitKey(0);*/
+	return(img_line);
 }
