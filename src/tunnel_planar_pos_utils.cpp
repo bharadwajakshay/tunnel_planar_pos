@@ -24,10 +24,19 @@ tunnel_planar_pos::tunnel_planar_pos()
 	pub_detected_img = nh.advertise<sensor_msgs::Image>("/tunnel_planar_pos/DetectedEdges",1000);
 
 #ifdef _DISP_ALL_POINTS
-	pub_S0_xmin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Xmin",1000);
-	pub_S0_xmax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Xmax",1000);
-	pub_S0_ymin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Ymin",1000);
-	pub_S0_ymax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/S0_Ymax",1000);
+	pub_S0_xmin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Xmin_cloud",1000);
+	pub_S0_xmax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Xmax_cloud",1000);
+	pub_S0_ymin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymin_cloud",1000);
+	pub_S0_ymax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymax_cloud",1000);
+	pub_xy_Main = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_cloud",1000);
+#endif
+
+#ifndef _SAVE_EXEC_TIME
+	pub_xmin_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Xmin_plane",1000);
+	pub_xmax_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Xmax_plane",1000);
+	pub_ymin_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Ymin_plane",1000);
+	pub_ymax_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Ymax_plane",1000);
+	pub_Z_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Z_plane",1000);
 #endif
 
 	xmin=false,xmax=false;ymin=false;ymax=false;
@@ -95,7 +104,7 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	std::cout<<"Minimum pt=\n\tx min = "<< min_pt[0]<< "\ty min = "<<min_pt[1]<<"\tz min ="<<min_pt[2]<<"\n";
 	std::cout<<"Maximum pt=\n\tx max = "<< max_pt[0]<< "\ty max = "<<max_pt[1]<<"\tz max ="<<max_pt[2]<< "\n";
 #endif
-	this->parse_point_data(rgb_cloud);
+//	this->parse_point_data(rgb_cloud);
 	/*************************************************************************************
 	 * Extract the Edge image based on Depth discontinuty
 	 *************************************************************************************/
@@ -273,6 +282,8 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 	pcl::PointCloud<pcl::PointXYZRGB> slice_z;
 	pcl::PointCloud<pcl::PointXYZRGB> slice_y(input_cloud->width,input_cloud->height);
 	pcl::PointCloud<pcl::PointXYZRGB> slice_x(input_cloud->width,input_cloud->height);
+	pcl::PointCloud<pcl::PointXYZRGB> slice_xy(input_cloud->width,input_cloud->height);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr slice_xy_ptr (new pcl::PointCloud<pcl::PointXYZRGB>);
 
 	//clearing pointclouds
 	slice_0.clear();
@@ -303,7 +314,7 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 	//Slice Vector X
 	dist_btw_slice = (pt_max[0] - pt_min[0])/NO_OF_SLICES_X;
 	for(int i=1; i<=NO_OF_SLICES_X;i++)
-		slice_pts_x[i-1] = pt_min[1] + (i*dist_btw_slice);
+		slice_pts_x[i-1] = pt_min[0] + (i*dist_btw_slice);
 
 	ros::Time start_for_loop_time = ros::Time::now();
 	for(int ii=0;ii<input_cloud->width;ii++)
@@ -345,6 +356,8 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 				if(diff_y[0]<0.005)
 				{
 					slice_y.at(ii,jj)=point;
+					slice_xy.at(ii,jj)=point;
+					slice_xy_ptr->push_back(point);
 				}
 			}
 			if((pcl_isfinite(point.x)))
@@ -355,6 +368,8 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 				if(diff_x[0]<0.005)
 				{
 					slice_x.at(ii,jj)=point;
+					slice_xy.at(ii,jj)=point;
+					slice_xy_ptr->push_back(point);
 				}
 			}
 		}
@@ -380,38 +395,70 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 	pub_y_slices.publish(slice_y);
 	pub_z_slices.publish(slices_z_pc);
 
+
 	//Processing Slices
 	ros::Time strt_slice_proc_time = ros::Time::now();
-	if(slice_0.width>500)
-	{
-		this->ProcessSingleSlice(slice_0,xmin0,xmax0,ymin0,ymax0);
-		std::cout<<"Processing Slice 0"<<std::endl;
-	}
-	if(slice_1.width>500)
-	{
-		this->ProcessSingleSlice(slice_1,xmin1,xmax1,ymin1,ymax1);
-		std::cout<<"Processing Slice 1"<<std::endl;
-	}
-	if(slice_2.width>500)
-	{
-		this->ProcessSingleSlice(slice_2,xmin2,xmax2,ymin2,ymax2);
-		std::cout<<"Processing Slice 2"<<std::endl;
-	}
-	if(slice_3.width>500)
-	{
-		this->ProcessSingleSlice(slice_3,xmin3,xmax3,ymin3,ymax3);
-		std::cout<<"Processing Slice 3"<<std::endl;
-	}
-	if(slice_4.width>500)
-	{
-		this->ProcessSingleSlice(slice_4,xmin4,xmax4,ymin4,ymax4);
-		std::cout<<"Processing Slice 4"<<std::endl;
-	}
-	if(slice_5.width>500)
-	{
-		this->ProcessSingleSlice(slice_5,xmin0,xmax5,ymin5,ymax5);
-		std::cout<<"Processing Slice 5"<<std::endl;
-	}
+	pcl::PointCloud<pcl::PointXYZRGB> xmax;
+	xmax.clear();
+	xmax.header = input_cloud->header;
+	pcl::PointCloud<pcl::PointXYZRGB> xmin;
+	xmin.clear();
+	xmin.header = input_cloud->header;
+	pcl::PointCloud<pcl::PointXYZRGB> ymax;
+	ymax.clear();
+	ymax.header = input_cloud->header;
+	pcl::PointCloud<pcl::PointXYZRGB> ymin;
+	ymin.clear();
+	ymin.header = input_cloud->header;
+
+	this->ProcessSingleSlice(slice_0,xmin,xmax,ymin,ymax);
+	this->ProcessSingleSlice(slice_1,xmin,xmax,ymin,ymax);
+	this->ProcessSingleSlice(slice_2,xmin,xmax,ymin,ymax);
+	this->ProcessSingleSlice(slice_3,xmin,xmax,ymin,ymax);
+	this->ProcessSingleSlice(slice_4,xmin,xmax,ymin,ymax);
+	this->ProcessSingleSlice(slice_5,xmin,xmax,ymin,ymax);
+
+	pcl::PointCloud<pcl::PointNormal>::Ptr xmax_plane (new pcl::PointCloud<pcl::PointNormal>);
+	xmax_plane->clear();
+	xmax_plane->header = input_cloud->header;
+	pcl::PointCloud<pcl::PointNormal>::Ptr xmin_plane (new pcl::PointCloud<pcl::PointNormal>);
+	xmin_plane->clear();
+	xmin_plane->header = input_cloud->header;
+	pcl::PointCloud<pcl::PointNormal>::Ptr ymax_plane (new pcl::PointCloud<pcl::PointNormal>);
+	ymax_plane->clear();
+	ymax_plane->header = input_cloud->header;
+	pcl::PointCloud<pcl::PointNormal>::Ptr ymin_plane (new pcl::PointCloud<pcl::PointNormal>);
+	ymin_plane->clear();
+	ymin_plane->header = input_cloud->header;
+
+
+	if(xmin.width>500)
+		Eigen::Vector4f xmin_coeff = this->LineEsitmationRANSAC(xmin,xmin_plane);
+	if(xmax.width>500)
+		Eigen::Vector4f xmax_coeff = this->LineEsitmationRANSAC(xmax,xmax_plane);
+	if(ymin.width>500)
+		Eigen::Vector4f ymin_coeff = this->LineEsitmationRANSAC(ymin,ymin_plane);
+	if(ymax.width>500)
+		Eigen::Vector4f ymax_coeff = this->LineEsitmationRANSAC(ymax,ymax_plane);
+
+
+	//Publishing each point cloud
+	pub_S0_xmax.publish(xmax);
+	pub_S0_xmin.publish(xmin);
+	pub_S0_ymin.publish(ymin);
+	pub_S0_ymin.publish(ymax);
+
+#ifndef _SAVE_EXEC_TIME
+	pub_xmin_plane.publish(xmin_plane);
+	pub_xmax_plane.publish(xmax_plane);
+	pub_xmin_plane.publish(ymin_plane);
+	pub_ymax_plane.publish(ymax_plane);
+#endif
+
+	//processing X_Y Clouds
+	this->SegmentXYCloud(slice_xy);
+	//this->ClusteringEucledian(slice_xy_ptr);
+
 	ros::Time end_slice_proc_time = ros::Time::now();
 	std::cout<<"Processing each Z slice for 1 cloud takes "<<end_slice_proc_time.toSec() - strt_slice_proc_time.toSec()<<" seconds"<<std::endl;
 
@@ -776,129 +823,44 @@ void tunnel_planar_pos::array_segmentation(Eigen::Vector4f pt_min,Eigen::Vector4
 		std::cout<<"Z slices Segmentation as Arrays "<<end_for_loop_time.toSec() - start_for_loop_time.toSec()<<" nano seconds"<<std::endl;
 }
 
-void tunnel_planar_pos::ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, float minx, float maxx,float miny, float maxy)
+void tunnel_planar_pos::ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, pcl::PointCloud<pcl::PointXYZRGB>& minx, pcl::PointCloud<pcl::PointXYZRGB>& maxx,
+		pcl::PointCloud<pcl::PointXYZRGB>& miny, pcl::PointCloud<pcl::PointXYZRGB>& maxy)
 {
-	/*Eigen::MatrixXf xmin(slice.width,3);
-	Eigen::MatrixXf ymin(slice.width,3);
-	Eigen::MatrixXf xmax(slice.width,3);
-	Eigen::MatrixXf ymax(slice.width,3);
-	int xmin_count = 0, ymin_count = 0,xmax_count = 0,ymax_count = 0;
-	for(int i=0;i<slice.width;i++)
-	{
-		pcl::PointXYZRGB point = slice.at(i);
-		if(std::fabs(minx-point.x)<0.02)
-		{
-			xmin(xmin_count,0) =point.x;
-			xmin(xmin_count,1) =point.y;
-			xmin(xmin_count,2) =point.z;
-			xmin_count++;
-		}
-		if(std::fabs(miny-point.y)<0.02)
-		{
-			ymin(ymin_count,0) =point.x;
-			ymin(ymin_count,1) =point.y;
-			ymin(ymin_count,2) =point.z;
-			ymin_count++;
-		}
-		if(std::fabs(maxx-point.x)<0.015)
-		{
-			xmax(xmax_count,0) =point.x;
-			xmax(xmax_count,1) =point.y;
-			xmax(xmax_count,2) =point.z;
-			xmax_count++;
-		}
-		if(std::fabs(maxy-point.y)<0.015)
-		{
-			ymax(ymax_count,0) =point.x;
-			ymax(ymax_count,1) =point.y;
-			ymax(ymax_count,2) =point.z;
-			ymax_count++;
-		}
-	}
-	if(xmin_count>50)
-		this->plane_est_svd(xmin);
-	if(xmax_count>50)
-		this->plane_est_svd(xmax);
-	if(ymin_count>50)
-		this->plane_est_svd(ymin);
-	if(ymax_count>50)
-		this->plane_est_svd(ymax);*/
 
 	//get min max
 	Eigen::Vector4f min, max;
 	pcl::getMinMax3D(slice,min,max);
 
-	minx = min[0];
-	maxx = max[0];
-	miny = min[1];
-	maxy = max[1];
-
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmin(new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymin(new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmax(new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymax(new pcl::PointCloud<pcl::PointXYZRGB>);
+	float xmin = min[0];
+	float xmax = max[0];
+	float ymin = min[1];
+	float ymax = max[1];
 
 	int xmin_count = 0, ymin_count = 0,xmax_count = 0,ymax_count = 0;
 	for(int i=0;i<slice.width;i++)
 	{
 		pcl::PointXYZRGB point = slice.at(i);
-		if(std::fabs(minx-point.x)<0.02)
+		if(std::fabs(xmin-point.x)<0.02)
 		{
-			xmin->push_back(point);
-			xmin_count++;
+			minx.push_back(point);
 		}
-		if(std::fabs(miny-point.y)<0.02)
+		if(std::fabs(ymin-point.y)<0.02)
 		{
-			ymin->push_back(point);
-			ymin_count++;
+			miny.push_back(point);
 		}
-		if(std::fabs(maxx-point.x)<0.02)
+		if(std::fabs(xmax-point.x)<0.02)
 		{
-			xmax->push_back(point);
-			xmax_count++;
+			maxx.push_back(point);
 		}
-		if(std::fabs(maxy-point.y)<0.02)
+		if(std::fabs(ymax-point.y)<0.02)
 		{
-			ymax->push_back(point);
-			ymax_count++;
+			maxy.push_back(point);
 		}
 	}
-	xmax->header = slices_z_pc.header;
-	xmin->header = slices_z_pc.header;
-	ymin->header = slices_z_pc.header;
-	ymax->header = slices_z_pc.header;
-
-	//publish all slices
-	pub_S0_xmax.publish(xmax);
-	pub_S0_xmin.publish(xmin);
-	pub_S0_ymax.publish(ymax);
-	pub_S0_ymin.publish(ymin);
-
-	if(xmin_count>50)
-	{
-		Eigen::VectorXf xmin_line = this->LineEsitmationRANSAC(xmin);
-		std::cout<<"The Line coefficients of Xmin slice "<<xmin_line.transpose()<<std::endl;
-	}
-	if(xmax_count>50)
-	{
-		Eigen::VectorXf xmax_line = this->LineEsitmationRANSAC(xmax);
-		std::cout<<"The Line coefficients of Xmax slice "<<xmax_line.transpose()<<std::endl;
-	}
-	if(ymin_count>50)
-	{
-		Eigen::VectorXf ymin_line = this->LineEsitmationRANSAC(ymin);
-		std::cout<<"The Line coefficients of Ymin slice "<<ymin_line.transpose()<<std::endl;
-	}
-	if(ymax_count>50)
-	{
-		Eigen::VectorXf ymax_line = this->LineEsitmationRANSAC(ymax);
-		std::cout<<"The Line coefficients of Ymax slice "<<ymax_line.transpose()<<std::endl;
-	}
-
 
 }
 
-Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointNormal>::Ptr& ptcld_norm)
 {
 	/*Eigen::VectorXf model_coeff(4);
 	std::vector<int> inliers;
@@ -909,11 +871,10 @@ Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::Poi
 	std::cout<<"The Line coefficients are "<<model_coeff.transpose()<<std::endl;
 	return(model_coeff);*/
 	Eigen::VectorXf model_coeff(4);
-	pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZ>);
-		pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud (new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::copyPointCloud(input_cloud,*temp_cloud);
 	// Create the segmentation object
 	pcl::SACSegmentation<pcl::PointXYZRGB> seg;
-	pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
 	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
 
 	// Optional
@@ -921,27 +882,151 @@ Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::Poi
 	// Mandatory
 	seg.setModelType (pcl::SACMODEL_PLANE);
 	seg.setMethodType (pcl::SAC_RANSAC);
-	seg.setDistanceThreshold (0.005);
-	seg.setInputCloud(input_cloud);
-	seg.setEpsAngle(0.0872665); //Setting the angle epsilon (delta) threshold
+	seg.setDistanceThreshold (0.003);
+	seg.setInputCloud(temp_cloud);
+	seg.setEpsAngle(0.0523599); //Setting the angle epsilon (delta) threshold
 
-	seg.segment(*inliers,*coefficients );
+	pcl::ModelCoefficients::Ptr normals (new pcl::ModelCoefficients);
+	seg.segment(*inliers,*normals );
 	if(inliers->indices.size()==0)
 		ROS_INFO("There are no lines in the point cloud\n");
 
-	model_coeff(0) =  coefficients->values.at(0);
-	model_coeff(1) =  coefficients->values.at(1);
-	model_coeff(2) =  coefficients->values.at(2);
-	model_coeff(3) =  coefficients->values.at(3);
+	model_coeff(0) =  normals->values.at(0);
+	model_coeff(1) =  normals->values.at(1);
+	model_coeff(2) =  normals->values.at(2);
+	model_coeff(3) =  normals->values.at(3);
 
-/*
+#ifndef _SAVE_EXEC_TIME
 	// Extract the planar inliers from the input cloud
-	pcl::ExtractIndices<pcl::PointXYZ> extract;
-	extract.setInputCloud(*input_cloud);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr inliers_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+	extract.setInputCloud(temp_cloud);
 	extract.setIndices (inliers);
 	extract.setNegative (false);
-	extract.filter(*filtered_cloud);
-	extract.setNegative(true);*/
+	extract.filter(*inliers_cloud);
+	pcl::Normal nor;
+	nor.normal_x = normals->values.at(0);
+	nor.normal_y = normals->values.at(1);
+	nor.normal_z = normals->values.at(2);
+
+	pcl::PointCloud<pcl::Normal>::Ptr norm (new pcl::PointCloud<pcl::Normal>);
+	norm->push_back(nor);
+	norm->header = slices_z_pc.header;
+	inliers_cloud->header = slices_z_pc.header;
+	pcl::copyPointCloud(*inliers_cloud,*ptcld_norm);
+	pcl::copyPointCloud(*norm,*ptcld_norm);
+#endif
+
 	return(model_coeff);
+
+}
+
+void tunnel_planar_pos::SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud)
+{
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg1_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointXYZRGB point;
+	std::vector<float> depth_pts;
+	float sum = 0;
+	// Point Cloud segment (Main)
+	if(xy_cloud.isOrganized())
+	{
+		for(int ii=160;ii<480;ii++)
+			for(int jj=0;jj<xy_cloud.height;jj++)
+			{
+				point = xy_cloud.at(ii,jj);
+				if(point.x > 0 || point.y > 0 || point.z > 0)
+				{
+					seg1_cloud->push_back(point);
+					depth_pts.push_back(point.z);
+					sum += point.z;
+				}
+			}
+
+		//calculating STD deviation
+		float mean = sum/depth_pts.size();
+		float accum = 0.0;
+		std::for_each (depth_pts.begin(), depth_pts.end(), [&](const float d) {
+		    accum += (d - mean) * (d - mean);
+		});
+		float stdev = std::sqrt(accum / (depth_pts.size()-1));
+
+		Eigen::VectorXf model_coeff(4);
+		if(stdev > 1.8 || stdev < 0.8)
+			this->ParallelZPlaneRANSAC(seg1_cloud,model_coeff);
+
+
+		std::cout<<"The size of the Main segment is "<<seg1_cloud->width<<" Points"<<std::endl;
+		std::cout<<"The Standard Deviation of depth in the cloud is "<<stdev<<std::endl;
+		seg1_cloud->header = slices_z_pc.header;
+		pub_xy_Main.publish(seg1_cloud);
+	}
+	else
+		std::cout<<"The Point cloud is not organised for XY segmentation"<<std::endl;
+}
+
+void tunnel_planar_pos::ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::VectorXf& model_coeff)
+{
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	//pcl::copyPointCloud(input_cloud,*temp_cloud);
+	// Create the segmentation object
+	pcl::SACSegmentation<pcl::PointXYZRGB> seg;
+	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+
+	// Optional
+	seg.setOptimizeCoefficients (true);
+	// Mandatory
+	seg.setModelType (pcl::SACMODEL_PERPENDICULAR_PLANE);
+	seg.setMethodType (pcl::SAC_RANSAC);
+	seg.setDistanceThreshold (0.05);
+	seg.setInputCloud(input_cloud);
+	//seg.setEpsAngle(0.0523599); //Setting the angle epsilon (delta) threshold
+	seg.setEpsAngle(0.0872665);
+	seg.setAxis(Eigen::Vector3f(0,0,1));
+
+
+	pcl::ModelCoefficients::Ptr normals (new pcl::ModelCoefficients);
+	seg.segment(*inliers,*normals );
+	if(inliers->indices.size()==0)
+	{
+		ROS_INFO("There are no planes in the point cloud\n");
+	}
+	else
+	{
+#ifndef _SAVE_EXEC_TIME
+		// Extract the planar inliers from the input cloud
+		pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+		extract.setInputCloud(input_cloud);
+		extract.setIndices (inliers);
+		extract.setNegative (false);
+		extract.filter(*filtered_cloud);
+		filtered_cloud->header = slices_z_pc.header;
+		pub_Z_plane.publish(filtered_cloud);
+
+#endif
+	}
+
+	model_coeff(0) =  normals->values.at(0);
+	model_coeff(1) =  normals->values.at(1);
+	model_coeff(2) =  normals->values.at(2);
+	model_coeff(3) =  normals->values.at(3);
+	std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+
+}
+
+void tunnel_planar_pos::ClusteringEucledian(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+{
+	// Creating the KdTree object for the search method of the extraction
+	  pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree (new pcl::search::KdTree<pcl::PointXYZRGB>);
+	  kdtree->setInputCloud(input_cloud);
+
+	  std::vector<pcl::PointIndices> cluster_indices;
+	  pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
+	  ec.setClusterTolerance (0.02); // 2cm
+	  ec.setMinClusterSize (75);
+	  ec.setMaxClusterSize (25000);
+	  ec.setSearchMethod (kdtree);
+	  ec.setInputCloud (input_cloud);
+	  ec.extract (cluster_indices);
+	  std::cout<<"The number of clusters are: "<<cluster_indices.size()<<std::endl;
 
 }

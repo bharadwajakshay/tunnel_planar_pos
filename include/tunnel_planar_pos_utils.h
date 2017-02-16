@@ -86,6 +86,8 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/features/integral_image_normal.h>
 #include <pcl/visualization/cloud_viewer.h>
+#include <pcl/common/centroid.h>
+
 
 ///#include <chrono>
 
@@ -133,8 +135,12 @@ public:
 	pcl::PointCloud<pcl::PointXYZRGB> pc_segmentation_y(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f min_pt, Eigen::Vector4f max_pt);
 	void parse_point_data(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 	void array_segmentation(Eigen::Vector4f pt_min,Eigen::Vector4f pt_max);
-	void ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, float minx, float maxx,float miny, float maxy);
-	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
+	void ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, pcl::PointCloud<pcl::PointXYZRGB>& minx, pcl::PointCloud<pcl::PointXYZRGB>& maxx,
+			pcl::PointCloud<pcl::PointXYZRGB>& miny, pcl::PointCloud<pcl::PointXYZRGB>& maxy);
+	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointNormal>::Ptr& ptcld_norm);
+	void SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud);
+	void ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::VectorXf& model_coeff);
+	void ClusteringEucledian(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 private:
 	ros::NodeHandle nh;
 	//Topics to subscribe
@@ -153,28 +159,18 @@ private:
 	ros::Publisher pub_S0_xmax;
 	ros::Publisher pub_S0_ymin;
 	ros::Publisher pub_S0_ymax;
-
-	/*
-	ros::Publisher pub_S0_xmax;
-	ros::Publisher pub_S1_xmax;
-	ros::Publisher pub_S2_xmax;
-	ros::Publisher pub_S3_xmax;
-	ros::Publisher pub_S4_xmax;
-	ros::Publisher pub_S5_xmax;
-	ros::Publisher pub_S0_ymin;
-	ros::Publisher pub_S1_ymin;
-	ros::Publisher pub_S2_ymin;
-	ros::Publisher pub_S3_ymin;
-	ros::Publisher pub_S4_ymin;
-	ros::Publisher pub_S5_ymin;
-	ros::Publisher pub_S0_ymax;
-	ros::Publisher pub_S1_ymax;
-	ros::Publisher pub_S2_ymax;
-	ros::Publisher pub_S3_ymax;
-	ros::Publisher pub_S4_ymax;
-	ros::Publisher pub_S5_ymax;*/
-
+	ros::Publisher pub_xy_Main;
 #endif
+
+#ifndef _SAVE_EXEC_TIME
+	ros::Publisher pub_xmin_plane;
+	ros::Publisher pub_xmax_plane;
+	ros::Publisher pub_ymin_plane;
+	ros::Publisher pub_ymax_plane;
+	ros::Publisher pub_Z_plane;
+#endif
+
+
 
 	//ros::Publisher pub_xminp,pub_yminp,pub_xmaxp,pub_ymaxp;
 	ros::Publisher pub_ext_planes, pub_plane_extracted;
