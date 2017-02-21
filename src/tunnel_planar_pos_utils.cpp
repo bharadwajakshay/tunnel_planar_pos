@@ -29,6 +29,15 @@ tunnel_planar_pos::tunnel_planar_pos()
 	pub_S0_ymin = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymin_cloud",1000);
 	pub_S0_ymax = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymax_cloud",1000);
 	pub_xy_Main = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_cloud",1000);
+	//
+	pub_xy_seg1 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg1",1000);
+	pub_xy_seg2 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg2",1000);
+	pub_xy_seg3 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg3",1000);
+	pub_xy_seg4 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg4",1000);
+	pub_xy_seg5 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg5",1000);
+	pub_xy_seg6 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg6",1000);
+	pub_xy_seg7 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg7",1000);
+	pub_xy_seg8 = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/XYmain_seg8",1000);
 #endif
 
 #ifndef _SAVE_EXEC_TIME
@@ -39,7 +48,6 @@ tunnel_planar_pos::tunnel_planar_pos()
 	pub_Z_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Z_plane",1000);
 #endif
 
-	xmin=false,xmax=false;ymin=false;ymax=false;
 	coeff_valid =false;
 	first_imu_msg = true;
 	imu_loop_itr = 0;
@@ -97,6 +105,7 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	// Calculate the minimum and the maximum points in the Point Cloud (Takes about 2-3ms
 	Eigen::Vector4f min_pt,max_pt;
 	pcl::getMinMax3D(*rgb_cloud,min_pt,max_pt);
+	bool xmin_coeff = false , xmax_coeff = false, ymin_coeff = false, ymax_coeff = false, z_coeff = false;
 
 	ros::Time end_time_init = ros::Time::now();
 	std::cout<<"Total time taken for initialization is "<<end_time_init.toSec()- start_time_main.toSec()<<"Seconds"<<std::endl;
@@ -137,16 +146,26 @@ void tunnel_planar_pos::callbackpointclouds(const sensor_msgs::PointCloud2::Cons
 	//std::vector<int> indices_nan;
 	//pcl::removeNaNFromPointCloud(*rgb_cloud,*rgb_cloud,indices_nan);
 	//this->array_segmentation(min_pt,max_pt);
-	this->pc_segmentation(rgb_cloud,min_pt,max_pt);
-	//this->pc_segmentation_y(back_up_pc,min_pt,max_pt);
 
+	/***********************************************************************************************************
+	 * Ceofficeints for plane
+	 * Xmin
+	 * Xmax
+	 * Ymin
+	 * Ymax
+	 * Zplane
+	 ***********************************************************************************************************/
+	Eigen::Vector4f normXmin = Eigen::Vector4f::Zero(), normXmax = Eigen::Vector4f::Zero(),
+			normYmin = Eigen::Vector4f::Zero(), normYmax = Eigen::Vector4f::Zero();
+	std::vector<Eigen::Vector4f> normZ;
+	this->pc_segmentation(rgb_cloud,min_pt,max_pt,normXmin,normXmax,normYmin,normYmax,normZ);
+	//this->pc_segmentation_y(back_up_pc,min_pt,max_pt);
 	/************************************************************************************************************
 	 * Note: DO NOT COMMENT OR REMOVE!!! Other wise causes error during SVD calculation
 	 * Setting all the segmented point clouds bool flags to zero
 	 ************************************************************************************************************/
-	xmin = false; xmax = false; ymin = false; ymax = false;
-
 	ros::Time end_time_main = ros::Time::now();
+
 	if(total_exe_time.is_open())
 		total_exe_time<<end_time_main.toSec() - start_time_main.toSec()<<std::endl;
 	else
@@ -271,7 +290,8 @@ pcl::ModelCoefficients tunnel_planar_pos::plane_est_svd(Eigen::MatrixXf points)
 
 }
 
-void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max)
+void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max,
+		Eigen::Vector4f& xmin_coeff,Eigen::Vector4f& xmax_coeff,Eigen::Vector4f& ymin_coeff,Eigen::Vector4f& ymax_coeff, std::vector<Eigen::Vector4f> Z_normals)
 {
 	pcl::PointCloud<pcl::PointXYZRGB> slice_0;
 	pcl::PointCloud<pcl::PointXYZRGB> slice_1;
@@ -433,13 +453,13 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 
 
 	if(xmin.width>500)
-		Eigen::Vector4f xmin_coeff = this->LineEsitmationRANSAC(xmin,xmin_plane);
+		xmin_coeff = this->LineEsitmationRANSAC(xmin,xmin_plane);
 	if(xmax.width>500)
-		Eigen::Vector4f xmax_coeff = this->LineEsitmationRANSAC(xmax,xmax_plane);
+		xmax_coeff = this->LineEsitmationRANSAC(xmax,xmax_plane);
 	if(ymin.width>500)
-		Eigen::Vector4f ymin_coeff = this->LineEsitmationRANSAC(ymin,ymin_plane);
+		ymin_coeff = this->LineEsitmationRANSAC(ymin,ymin_plane);
 	if(ymax.width>500)
-		Eigen::Vector4f ymax_coeff = this->LineEsitmationRANSAC(ymax,ymax_plane);
+		ymax_coeff = this->LineEsitmationRANSAC(ymax,ymax_plane);
 
 
 	//Publishing each point cloud
@@ -456,11 +476,14 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 #endif
 
 	//processing X_Y Clouds
-	this->SegmentXYCloud(slice_xy);
+	Z_normals.clear();
+	this->SegmentXYCloud(slice_xy,Z_normals);
+
 	//this->ClusteringEucledian(slice_xy_ptr);
 
 	ros::Time end_slice_proc_time = ros::Time::now();
 	std::cout<<"Processing each Z slice for 1 cloud takes "<<end_slice_proc_time.toSec() - strt_slice_proc_time.toSec()<<" seconds"<<std::endl;
+	std::cout<<"No of Planar normals detected are "<<Z_normals.size()<<std::endl;
 
 }
 
@@ -564,7 +587,7 @@ double tunnel_planar_pos::distance_frm_point_2_plane(pcl::PointXYZI point, pcl::
 
 void tunnel_planar_pos::extract_inliers(pcl::ModelCoefficients xmin_coef, pcl::ModelCoefficients xmax_coef, pcl::ModelCoefficients ymin_coef, pcl::ModelCoefficients ymax_coef )
 {
-	pcl::PointXYZI point;
+/*	pcl::PointXYZI point;
 
 	if(xmin)
 		for(int i=0;i<xmin_pc.width;i++)
@@ -620,7 +643,7 @@ void tunnel_planar_pos::extract_inliers(pcl::ModelCoefficients xmin_coef, pcl::M
 				all_planes.push_back(point);
 			}
 		}
-
+*/
 }
 
 void tunnel_planar_pos::normal_extrct_org_pc(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
@@ -921,86 +944,260 @@ Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::Poi
 
 }
 
-void tunnel_planar_pos::SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud)
+void tunnel_planar_pos::SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud,std::vector<Eigen::Vector4f>& Z_normals)
 {
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg_main_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg1_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg2_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg3_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg4_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg5_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg6_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg7_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr seg8_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
 	pcl::PointXYZRGB point;
-	std::vector<float> depth_pts;
-	float sum = 0;
+	std::vector<float> depth_pts_mainseg, depth_pts_seg1, depth_pts_seg2, depth_pts_seg3, depth_pts_seg4, depth_pts_seg5, depth_pts_seg6, depth_pts_seg7, depth_pts_seg8;
+	float sum_main = 0, sum_1 = 0,sum_2 = 0,sum_3 = 0,sum_4 = 0,sum_5 = 0,sum_6 = 0,sum_7 = 0,sum_8 = 0;
 	// Point Cloud segment (Main)
 	if(xy_cloud.isOrganized())
 	{
-		for(int ii=160;ii<480;ii++)
+		for(int ii=0;ii<xy_cloud.width;ii++)
 			for(int jj=0;jj<xy_cloud.height;jj++)
 			{
 				point = xy_cloud.at(ii,jj);
 				if(point.x > 0 || point.y > 0 || point.z > 0)
 				{
-					seg1_cloud->push_back(point);
-					depth_pts.push_back(point.z);
-					sum += point.z;
+					if((ii<160)&&(jj<120))
+					{
+						seg1_cloud->push_back(point);
+						depth_pts_seg1.push_back(point.z);
+					}
+					if((ii>=160) && (ii<480))
+					{
+						seg_main_cloud->push_back(point);
+						depth_pts_mainseg.push_back(point.z);
+					}
+					if((ii>=480)&&(jj<120))
+					{
+						seg2_cloud->push_back(point);
+						depth_pts_seg2.push_back(point.z);
+					}
+
+					if((ii<160)&&((jj>=120)&&(jj<240)))
+					{
+						seg3_cloud->push_back(point);
+						depth_pts_seg3.push_back(point.z);
+					}
+					if((ii>=480)&&((jj>=120)&&(jj<240)))
+					{
+						seg4_cloud->push_back(point);
+						depth_pts_seg4.push_back(point.z);
+					}
+
+					if((ii<160)&&((jj>=240)&&(jj<360)))
+					{
+						seg5_cloud->push_back(point);
+						depth_pts_seg5.push_back(point.z);
+					}
+					if((ii>=480)&&((jj>=240)&&(jj<360)))
+					{
+						seg6_cloud->push_back(point);
+						depth_pts_seg6.push_back(point.z);
+					}
+					if((ii<160)&&(jj>=360))
+					{
+						seg7_cloud->push_back(point);
+						depth_pts_seg7.push_back(point.z);
+					}
+					if((ii>=480)&&(jj>=360))
+					{
+						seg8_cloud->push_back(point);
+						depth_pts_seg8.push_back(point.z);
+					}
+
+
 				}
 			}
 
-		//calculating STD deviation
-		float mean = sum/depth_pts.size();
-		float accum = 0.0;
-		std::for_each (depth_pts.begin(), depth_pts.end(), [&](const float d) {
-		    accum += (d - mean) * (d - mean);
-		});
-		float stdev = std::sqrt(accum / (depth_pts.size()-1));
-
-		Eigen::VectorXf model_coeff(4);
-		if(stdev > 1.8 || stdev < 0.8)
-			this->ParallelZPlaneRANSAC(seg1_cloud,model_coeff);
+		/*float stdev_main = this->StdCalc(depth_pts_mainseg,std::accumulate(depth_pts_mainseg.begin(),depth_pts_mainseg.end(),0));
+		float stdev_1 = this->StdCalc(depth_pts_seg1,std::accumulate(depth_pts_seg1.begin(),depth_pts_seg1.end(),0));
+		float stdev_2 = this->StdCalc(depth_pts_seg2,std::accumulate(depth_pts_seg2.begin(),depth_pts_seg2.end(),0));
+		float stdev_3 = this->StdCalc(depth_pts_seg3,std::accumulate(depth_pts_seg3.begin(),depth_pts_seg3.end(),0));
+		float stdev_4 = this->StdCalc(depth_pts_seg4,std::accumulate(depth_pts_seg4.begin(),depth_pts_seg4.end(),0));
+		float stdev_5 = this->StdCalc(depth_pts_seg5,std::accumulate(depth_pts_seg5.begin(),depth_pts_seg5.end(),0));
+		float stdev_6 = this->StdCalc(depth_pts_seg6,std::accumulate(depth_pts_seg6.begin(),depth_pts_seg6.end(),0));
+		float stdev_7 = this->StdCalc(depth_pts_seg7,std::accumulate(depth_pts_seg7.begin(),depth_pts_seg7.end(),0));
+		float stdev_8 = this->StdCalc(depth_pts_seg8,std::accumulate(depth_pts_seg8.begin(),depth_pts_seg8.end(),0));*/
 
 
-		std::cout<<"The size of the Main segment is "<<seg1_cloud->width<<" Points"<<std::endl;
-		std::cout<<"The Standard Deviation of depth in the cloud is "<<stdev<<std::endl;
+
+		Eigen::Vector4f model_coeff(4);
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_mainZ (new pcl::PointCloud<pcl::PointXYZRGB>);
+		bool valid =false;
+
+		valid = this->ParallelZPlaneRANSAC(seg_main_cloud,model_coeff,extract_mainZ);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg1 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid = this->ParallelZPlaneRANSAC(seg1_cloud,model_coeff, extract_seg1);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg2_cloud,model_coeff,extract_seg2);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg3 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg3_cloud,model_coeff,extract_seg2);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg4 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg4_cloud,model_coeff,extract_seg2);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg5 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg5_cloud,model_coeff,extract_seg5);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg6 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg6_cloud,model_coeff,extract_seg5);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg7 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg7_cloud,model_coeff,extract_seg7);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+		pcl::PointCloud<pcl::PointXYZRGB>::Ptr extract_seg8 (new pcl::PointCloud<pcl::PointXYZRGB>);
+		valid =	this->ParallelZPlaneRANSAC(seg8_cloud,model_coeff,extract_seg8);
+		if(valid)
+		{
+			std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+			Z_normals.push_back(model_coeff);
+		}
+
+
+/*		std::cout<<"The size of the Main segment is "<<seg_main_cloud->width<<" Points"<<std::endl;
+		std::cout<<"The Standard Deviation of Main segment "<<stdev_main<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_1<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_2<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_3<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_4<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_5<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_6<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_7<<std::endl;
+		std::cout<<"The Standard Deviation of 1st segment "<<stdev_8<<std::endl;*/
+
+		//publish Pointclouds
 		seg1_cloud->header = slices_z_pc.header;
-		pub_xy_Main.publish(seg1_cloud);
+		pub_xy_seg1.publish(seg1_cloud);
+		seg2_cloud->header = slices_z_pc.header;
+		pub_xy_seg2.publish(seg2_cloud);
+		seg3_cloud->header = slices_z_pc.header;
+		pub_xy_seg3.publish(seg3_cloud);
+		seg4_cloud->header = slices_z_pc.header;
+		pub_xy_seg4.publish(seg4_cloud);
+		seg5_cloud->header = slices_z_pc.header;
+		pub_xy_seg5.publish(seg5_cloud);
+		seg6_cloud->header = slices_z_pc.header;
+		pub_xy_seg6.publish(seg6_cloud);
+		seg7_cloud->header = slices_z_pc.header;
+		pub_xy_seg7.publish(seg7_cloud);
+		seg8_cloud->header = slices_z_pc.header;
+		pub_xy_seg8.publish(seg8_cloud);
+
+		seg_main_cloud->header = slices_z_pc.header;
+		pub_xy_Main.publish(seg_main_cloud);
+
+		//Add all z planes
+		pcl::PointCloud<pcl::PointXYZRGB> Zplane;
+		Zplane.clear();
+		Zplane = *extract_mainZ + *extract_seg1;
+		Zplane += *extract_seg2;
+		Zplane += *extract_seg3;
+		Zplane += *extract_seg4;
+		Zplane += *extract_seg5;
+		Zplane += *extract_seg6;
+		Zplane += *extract_seg7;
+		Zplane += *extract_seg8;
+		Zplane.header = slices_z_pc.header;
+		pub_Z_plane.publish(Zplane);
 	}
 	else
 		std::cout<<"The Point cloud is not organised for XY segmentation"<<std::endl;
 }
 
-void tunnel_planar_pos::ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::VectorXf& model_coeff)
+bool tunnel_planar_pos::ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f& model_coeff, pcl::PointCloud<pcl::PointXYZRGB>::Ptr& filtered_cloud)
 {
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+//	/pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+	bool isvalid = false;
 	//pcl::copyPointCloud(input_cloud,*temp_cloud);
 	// Create the segmentation object
 	pcl::SACSegmentation<pcl::PointXYZRGB> seg;
 	pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
-
+	model_coeff(0) = 0;
+	model_coeff(1) = 0;
+	model_coeff(2) = 0;
+	model_coeff(3) = 0;
 	// Optional
 	seg.setOptimizeCoefficients (true);
 	// Mandatory
 	seg.setModelType (pcl::SACMODEL_PERPENDICULAR_PLANE);
 	seg.setMethodType (pcl::SAC_RANSAC);
-	seg.setDistanceThreshold (0.05);
+	seg.setDistanceThreshold (0.02);
 	seg.setInputCloud(input_cloud);
-	//seg.setEpsAngle(0.0523599); //Setting the angle epsilon (delta) threshold
-	seg.setEpsAngle(0.0872665);
+	seg.setEpsAngle(0.0523599); //Setting the angle epsilon (delta) threshold
+	//seg.setEpsAngle(0.0872665);
 	seg.setAxis(Eigen::Vector3f(0,0,1));
 
 
 	pcl::ModelCoefficients::Ptr normals (new pcl::ModelCoefficients);
 	seg.segment(*inliers,*normals );
-	if(inliers->indices.size()==0)
+	if(inliers->indices.size() < 100)
 	{
 		ROS_INFO("There are no planes in the point cloud\n");
+		isvalid = false;
 	}
 	else
 	{
 #ifndef _SAVE_EXEC_TIME
+		isvalid = true;
 		// Extract the planar inliers from the input cloud
 		pcl::ExtractIndices<pcl::PointXYZRGB> extract;
 		extract.setInputCloud(input_cloud);
 		extract.setIndices (inliers);
 		extract.setNegative (false);
 		extract.filter(*filtered_cloud);
-		filtered_cloud->header = slices_z_pc.header;
-		pub_Z_plane.publish(filtered_cloud);
 
 #endif
 	}
@@ -1009,24 +1206,20 @@ void tunnel_planar_pos::ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::
 	model_coeff(1) =  normals->values.at(1);
 	model_coeff(2) =  normals->values.at(2);
 	model_coeff(3) =  normals->values.at(3);
-	std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl;
+	//std::cout<<"The Model coeff of the Z plane is "<<model_coeff.transpose()<<std::endl; Posted to main fuction
+	return(isvalid);
 
 }
 
-void tunnel_planar_pos::ClusteringEucledian(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud)
+
+float tunnel_planar_pos::StdCalc(std::vector<float> depth_field, float sum)
 {
-	// Creating the KdTree object for the search method of the extraction
-	  pcl::search::KdTree<pcl::PointXYZRGB>::Ptr kdtree (new pcl::search::KdTree<pcl::PointXYZRGB>);
-	  kdtree->setInputCloud(input_cloud);
-
-	  std::vector<pcl::PointIndices> cluster_indices;
-	  pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-	  ec.setClusterTolerance (0.02); // 2cm
-	  ec.setMinClusterSize (75);
-	  ec.setMaxClusterSize (25000);
-	  ec.setSearchMethod (kdtree);
-	  ec.setInputCloud (input_cloud);
-	  ec.extract (cluster_indices);
-	  std::cout<<"The number of clusters are: "<<cluster_indices.size()<<std::endl;
-
+	//calculating STD deviation
+	float mean = sum/depth_field.size();
+	float accum = 0.0;
+	std::for_each (depth_field.begin(), depth_field.end(), [&](const float d) {
+		accum += (d - mean) * (d - mean);
+	});
+	float stdev = std::sqrt(accum / (depth_field.size()-1));
+	return(stdev);
 }

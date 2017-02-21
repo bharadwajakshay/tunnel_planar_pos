@@ -116,7 +116,8 @@ public:
 	tunnel_planar_pos();
 	~tunnel_planar_pos();
 	void callbackpointclouds(const sensor_msgs::PointCloud2::ConstPtr& msg);
-	void pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max);
+	void pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud,Eigen::Vector4f pt_min,Eigen::Vector4f pt_max,
+			Eigen::Vector4f& xmin_coeff,Eigen::Vector4f& xmax_coeff,Eigen::Vector4f& ymin_coeff,Eigen::Vector4f& ymax_coeff, std::vector<Eigen::Vector4f> Z_normals);
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr imu_correction(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
 	void image_segmentation(pcl::PointCloud<pcl::PointXYZRGB>  input_cloud);
 	void callbackpointimu(const xsens_slim::imuX::ConstPtr& msg);
@@ -138,9 +139,10 @@ public:
 	void ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, pcl::PointCloud<pcl::PointXYZRGB>& minx, pcl::PointCloud<pcl::PointXYZRGB>& maxx,
 			pcl::PointCloud<pcl::PointXYZRGB>& miny, pcl::PointCloud<pcl::PointXYZRGB>& maxy);
 	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointNormal>::Ptr& ptcld_norm);
-	void SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud);
-	void ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::VectorXf& model_coeff);
+	void SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud,std::vector<Eigen::Vector4f>& Z_normals);
+	bool ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f& model_coeff, pcl::PointCloud<pcl::PointXYZRGB>::Ptr& filtered_cloud);
 	void ClusteringEucledian(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
+	float StdCalc(std::vector<float> depth_field, float sum);
 private:
 	ros::NodeHandle nh;
 	//Topics to subscribe
@@ -160,6 +162,14 @@ private:
 	ros::Publisher pub_S0_ymin;
 	ros::Publisher pub_S0_ymax;
 	ros::Publisher pub_xy_Main;
+	ros::Publisher pub_xy_seg1;
+	ros::Publisher pub_xy_seg2;
+	ros::Publisher pub_xy_seg3;
+	ros::Publisher pub_xy_seg4;
+	ros::Publisher pub_xy_seg5;
+	ros::Publisher pub_xy_seg6;
+	ros::Publisher pub_xy_seg7;
+	ros::Publisher pub_xy_seg8;
 #endif
 
 #ifndef _SAVE_EXEC_TIME
@@ -177,7 +187,7 @@ private:
 	pcl::PointCloud<pcl::PointXYZI> all_planes;
 	pcl::PointCloud<pcl::PointXYZRGB> all_planes_RGB;
 	pcl::PointCloud<pcl::PointXYZRGB> xmin_pc, ymin_pc,xmax_pc,ymax_pc,slices_z_pc;
-	bool xmin,xmax,ymin,ymax;
+
 	bool coeff_valid;
 	std::vector <pcl::PointXYZRGB> xmin_points, xmax_points,ymin_points,ymax_points;
 	bool first_imu_msg,first_pc_msg;
