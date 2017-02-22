@@ -41,11 +41,11 @@ tunnel_planar_pos::tunnel_planar_pos()
 #endif
 
 #ifndef _SAVE_EXEC_TIME
-	pub_xmin_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Xmin_plane",1000);
-	pub_xmax_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Xmax_plane",1000);
-	pub_ymin_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Ymin_plane",1000);
-	pub_ymax_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Ymax_plane",1000);
-	pub_Z_plane = nh.advertise<pcl::PointCloud<pcl::PointNormal> >("/tunnel_planar_pos/Z_plane",1000);
+	pub_xmin_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Xmin_plane",1000);
+	pub_xmax_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Xmax_plane",1000);
+	pub_ymin_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymin_plane",1000);
+	pub_ymax_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Ymax_plane",1000);
+	pub_Z_plane = nh.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/tunnel_planar_pos/Z_plane",1000);
 #endif
 
 	coeff_valid =false;
@@ -438,16 +438,16 @@ void tunnel_planar_pos::pc_segmentation(pcl::PointCloud<pcl::PointXYZRGB>::Ptr i
 	this->ProcessSingleSlice(slice_4,xmin,xmax,ymin,ymax);
 	this->ProcessSingleSlice(slice_5,xmin,xmax,ymin,ymax);
 
-	pcl::PointCloud<pcl::PointNormal>::Ptr xmax_plane (new pcl::PointCloud<pcl::PointNormal>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmax_plane (new pcl::PointCloud<pcl::PointXYZRGB>);
 	xmax_plane->clear();
 	xmax_plane->header = input_cloud->header;
-	pcl::PointCloud<pcl::PointNormal>::Ptr xmin_plane (new pcl::PointCloud<pcl::PointNormal>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr xmin_plane (new pcl::PointCloud<pcl::PointXYZRGB>);
 	xmin_plane->clear();
 	xmin_plane->header = input_cloud->header;
-	pcl::PointCloud<pcl::PointNormal>::Ptr ymax_plane (new pcl::PointCloud<pcl::PointNormal>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymax_plane (new pcl::PointCloud<pcl::PointXYZRGB>);
 	ymax_plane->clear();
 	ymax_plane->header = input_cloud->header;
-	pcl::PointCloud<pcl::PointNormal>::Ptr ymin_plane (new pcl::PointCloud<pcl::PointNormal>);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ymin_plane (new pcl::PointCloud<pcl::PointXYZRGB>);
 	ymin_plane->clear();
 	ymin_plane->header = input_cloud->header;
 
@@ -883,7 +883,7 @@ void tunnel_planar_pos::ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> sli
 
 }
 
-Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointNormal>::Ptr& ptcld_norm)
+Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointXYZRGB>::Ptr& ptcld)
 {
 	/*Eigen::VectorXf model_coeff(4);
 	std::vector<int> inliers;
@@ -926,18 +926,18 @@ Eigen::VectorXf tunnel_planar_pos::LineEsitmationRANSAC(pcl::PointCloud<pcl::Poi
 	extract.setInputCloud(temp_cloud);
 	extract.setIndices (inliers);
 	extract.setNegative (false);
-	extract.filter(*inliers_cloud);
+	extract.filter(*ptcld);
 	pcl::Normal nor;
 	nor.normal_x = normals->values.at(0);
 	nor.normal_y = normals->values.at(1);
 	nor.normal_z = normals->values.at(2);
 
-	pcl::PointCloud<pcl::Normal>::Ptr norm (new pcl::PointCloud<pcl::Normal>);
+	/*pcl::PointCloud<pcl::Normal>::Ptr norm (new pcl::PointCloud<pcl::Normal>);
 	norm->push_back(nor);
 	norm->header = slices_z_pc.header;
 	inliers_cloud->header = slices_z_pc.header;
 	pcl::copyPointCloud(*inliers_cloud,*ptcld_norm);
-	pcl::copyPointCloud(*norm,*ptcld_norm);
+	pcl::copyPointCloud(*norm,*ptcld_norm);*/
 #endif
 
 	return(model_coeff);

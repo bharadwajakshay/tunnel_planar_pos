@@ -138,7 +138,7 @@ public:
 	void array_segmentation(Eigen::Vector4f pt_min,Eigen::Vector4f pt_max);
 	void ProcessSingleSlice(pcl::PointCloud<pcl::PointXYZRGB> slice, pcl::PointCloud<pcl::PointXYZRGB>& minx, pcl::PointCloud<pcl::PointXYZRGB>& maxx,
 			pcl::PointCloud<pcl::PointXYZRGB>& miny, pcl::PointCloud<pcl::PointXYZRGB>& maxy);
-	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointNormal>::Ptr& ptcld_norm);
+	Eigen::VectorXf LineEsitmationRANSAC(pcl::PointCloud<pcl::PointXYZRGB> input_cloud, pcl::PointCloud<pcl::PointXYZRGB>::Ptr& ptcld);
 	void SegmentXYCloud(pcl::PointCloud<pcl::PointXYZRGB> xy_cloud,std::vector<Eigen::Vector4f>& Z_normals);
 	bool ParallelZPlaneRANSAC(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud, Eigen::Vector4f& model_coeff, pcl::PointCloud<pcl::PointXYZRGB>::Ptr& filtered_cloud);
 	void ClusteringEucledian(pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud);
